@@ -20,27 +20,10 @@
 
 {% block content %}
 
-<!-- Input de arquivo (oculto — acionado pelo upload zone e pelo banner) -->
+<!-- Input de arquivo (oculto — acionado pelo botão no sidebar) -->
 {% if user.role in ['admin', 'coordenacao'] %}
 <input type="file" id="upload-input" accept=".xls,.xlsx,.html,.htm" style="display:none" />
-{% endif %}
-
-<!-- Banner de status (compact, topo) -->
-{% if bi_data %}
-<div class="import-banner import-banner--ok">
-  <p>
-    <strong>Visualizando:</strong> {{ bi_data.periodo.label }}
-    &nbsp;·&nbsp; {{ bi_data.total_registros }} registros
-    &nbsp;·&nbsp; {{ bi_data.kpis.total_atendimentos }} finalizados
-  </p>
-  {% if user.role in ['admin', 'coordenacao'] %}
-  <label class="button-sm" style="cursor:pointer" for="upload-input">↑ Novo upload</label>
-  {% endif %}
-</div>
-{% else %}
-<div class="import-banner">
-  <p><strong>Dados demonstrativos</strong> — Importe um relatório na aba <strong>Financeiro</strong> para ver dados reais.</p>
-</div>
+<div class="upload-progress upload-toast" id="upload-progress"></div>
 {% endif %}
 
 <!-- Topbar com filtros -->
@@ -230,26 +213,6 @@
      ABA 2 — FINANCEIRO
 ═══════════════════════════════════════════ -->
 <section id="tab-financeiro" class="bi-panel">
-
-  <!-- Card de importação -->
-  {% if user.role in ['admin', 'coordenacao'] %}
-  <article class="dashboard-card glass upload-import-card">
-    <h3>Importar Dados</h3>
-    <p class="helper">Faça upload do relatório exportado do sistema (.xls) para adicionar ao BI.</p>
-
-    <div class="upload-zone" id="upload-zone">
-      <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
-        <rect width="44" height="44" rx="12" fill="rgba(229,98,46,0.10)"/>
-        <path d="M22 28V16M22 16l-6 6M22 16l6 6" stroke="var(--primary-strong)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M13 31h18" stroke="var(--primary-strong)" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-      <p class="uz-title">Arraste o arquivo aqui ou clique para selecionar</p>
-      <p class="uz-sub">Suporte: .xls exportado do iGut</p>
-      <label class="uz-btn" for="upload-input">Selecionar arquivo</label>
-    </div>
-    <div class="upload-progress" id="upload-progress"></div>
-  </article>
-  {% endif %}
 
   <!-- Lista de relatórios importados -->
   <article class="dashboard-card glass" id="reports-card" {% if not reports %}style="display:none"{% endif %}>

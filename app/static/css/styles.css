@@ -509,6 +509,12 @@ input { border: 0; outline: none; background: transparent; width: 100%; font-siz
 }
 .upload-progress.ok  { background: rgba(49,166,106,0.10); border-color: rgba(49,166,106,0.35); color: #1a6b42; }
 .upload-progress.err { background: rgba(215,53,25,0.08);  border-color: rgba(215,53,25,0.25);  color: var(--accent); }
+/* Toast flutuante (quando o card de upload foi removido do conteúdo) */
+.upload-toast {
+  position: fixed; bottom: 28px; right: 28px; z-index: 9999;
+  min-width: 280px; max-width: 420px;
+  margin: 0; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
 .upload-import-card .datos-ok {
   display: none; align-items: center; justify-content: space-between; gap: 16px;
   padding: 14px 0; flex-wrap: wrap;
