@@ -79,9 +79,9 @@ def _classify_status(s: str) -> str:
     if not isinstance(s, str):
         return "agendado"
     s = s.upper().strip()
-    if any(k in s for k in ["REALIZ", "ATENDID", "EXECUT"]):
+    if any(k in s for k in ["REALIZ", "ATENDID", "EXECUT", "FINALIZ", "FATURAD", "CONCLU"]):
         return "realizado"
-    if any(k in s for k in ["FALTA", "AUSENT", "NAO COMPAREC", "NÃO COMPAREC", "FALTOU"]):
+    if any(k in s for k in ["FALTA", "AUSENT", "NAO COMPAREC", "NÃO COMPAREC", "FALTOU", "DESMARCOU", "DESISTIU"]):
         return "falta"
     if any(k in s for k in ["CANCEL", "DESMARC"]):
         return "cancelado"

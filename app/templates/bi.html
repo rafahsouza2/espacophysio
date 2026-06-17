@@ -957,7 +957,8 @@ function fmtR$K(v) { return v >= 1000 ? "R$ " + (v/1000).toFixed(0) + "k" : "R$ 
 
 /* ── Visão Geral ── */
 function initVisaoGeral() {
-  const evo = SERVER ? SERVER.evolucao_diaria : {
+  const evo = (SERVER && SERVER.evolucao_diaria && SERVER.evolucao_diaria.labels && SERVER.evolucao_diaria.labels.length)
+    ? SERVER.evolucao_diaria : {
     labels: ["02/mai","04/mai","05/mai","06/mai","07/mai","08/mai","09/mai","11/mai","12/mai","13/mai","14/mai","15/mai","16/mai","18/mai","19/mai","20/mai","21/mai","22/mai","23/mai","25/mai","26/mai","27/mai","28/mai","29/mai","30/mai"],
     atendimentos: [3,133,135,150,108,75,17,138,127,144,129,62,19,148,100,125,124,75,13,142,124,140,111,33,25],
     faltas: [7,60,44,69,51,35,12,54,61,77,54,37,10,60,58,71,50,51,15,72,56,81,47,39,3]
@@ -1443,8 +1444,11 @@ document.querySelectorAll("#bi-sidebar-tabs .bi-sidebar-tab").forEach(btn => {
     document.querySelectorAll("#bi-sidebar-tabs .bi-sidebar-tab").forEach(b => b.classList.remove("active"));
     document.querySelectorAll(".bi-panel").forEach(p => p.classList.remove("active"));
     btn.classList.add("active");
-    document.getElementById(target).classList.add("active");
-    if (mainInit[target]) mainInit[target]();
+    const panel = document.getElementById(target);
+    if (panel) panel.classList.add("active");
+    if (mainInit[target]) {
+      try { mainInit[target](); } catch(e) { console.error("init " + target + ":", e); }
+    }
   });
 });
 
@@ -1476,7 +1480,7 @@ document.querySelectorAll(".bi-sub-tab").forEach(btn => {
 });
 
 /* ── Inicializar gráficos da primeira aba visível ── */
-initVisaoGeral();
+try { initVisaoGeral(); } catch(e) { console.error("initVisaoGeral:", e); }
 
 /* ── Toggle B.I sidebar ── */
 (function() {

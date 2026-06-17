@@ -642,7 +642,7 @@ a#menu-bi-link { display: flex; align-items: center; }
 
 /* Panels */
 .bi-panel { display: none; }
-.bi-panel.active { display: grid; gap: 18px; align-content: start; }
+.bi-panel.active { display: grid; gap: 18px; align-content: start; min-height: 100px; }
 
 /* Sub-tabs */
 .bi-sub-nav {
