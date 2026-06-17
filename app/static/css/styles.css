@@ -475,6 +475,56 @@ input { border: 0; outline: none; background: transparent; width: 100%; font-siz
 }
 .import-banner--ok strong { color: var(--success); }
 
+/* Upload zone */
+.upload-zone {
+  border: 2px dashed rgba(229,98,46,0.30);
+  border-radius: 16px;
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: rgba(229,98,46,0.03);
+  margin: 4px 0;
+}
+.upload-zone:hover, .upload-zone.dragover {
+  border-color: var(--primary-strong);
+  background: rgba(229,98,46,0.07);
+  transform: scale(1.005);
+}
+.upload-zone svg { margin-bottom: 14px; opacity: 0.55; }
+.upload-zone .uz-title { font-size: 1rem; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.upload-zone .uz-sub   { font-size: 0.82rem; color: var(--muted); margin-bottom: 20px; }
+.upload-zone .uz-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 11px 24px; border-radius: 12px; font-size: 0.88rem; font-weight: 700;
+  background: linear-gradient(135deg, var(--primary-strong), var(--accent));
+  color: #fff; cursor: pointer; transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.upload-zone .uz-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(215,53,25,0.28); }
+.upload-zone .uz-hint { margin-top: 14px; font-size: 0.78rem; color: var(--muted); }
+.upload-progress {
+  display: none; margin-top: 16px; padding: 14px 18px;
+  border-radius: 12px; font-weight: 700; font-size: 0.9rem;
+  background: rgba(238,157,79,0.10); border: 1px solid rgba(238,157,79,0.30);
+}
+.upload-progress.ok  { background: rgba(49,166,106,0.10); border-color: rgba(49,166,106,0.35); color: #1a6b42; }
+.upload-progress.err { background: rgba(215,53,25,0.08);  border-color: rgba(215,53,25,0.25);  color: var(--accent); }
+.upload-import-card .datos-ok {
+  display: none; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 14px 0; flex-wrap: wrap;
+}
+.upload-import-card .datos-ok.show { display: flex; }
+.datos-ok-info { font-size: 0.9rem; color: var(--text); }
+.datos-ok-info strong { color: var(--success); }
+.datos-ok-info span  { color: var(--muted); font-size: 0.82rem; }
+.datos-ok-btn {
+  padding: 9px 20px; border-radius: 12px; font-size: 0.83rem; font-weight: 700;
+  background: transparent; border: 1.5px solid rgba(229,98,46,0.40);
+  color: var(--primary-strong); cursor: pointer; transition: all 0.18s ease;
+  white-space: nowrap;
+}
+.datos-ok-btn:hover { background: rgba(229,98,46,0.08); border-color: var(--primary-strong); }
+
 /* Tabs principais */
 .bi-tabs {
   display: flex; gap: 4px; padding: 4px;

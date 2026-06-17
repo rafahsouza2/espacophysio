@@ -7,7 +7,12 @@
 
 {% block content %}
 
-<!-- Banner de importação / status dos dados -->
+<!-- Input de arquivo (oculto — acionado pelo upload zone e pelo banner) -->
+{% if user.role in ['admin', 'coordenacao'] %}
+<input type="file" id="upload-input" accept=".xls,.xlsx,.html,.htm" style="display:none" />
+{% endif %}
+
+<!-- Banner de status (compact, topo) -->
 {% if bi_data %}
 <div class="import-banner import-banner--ok">
   <p>
@@ -16,23 +21,13 @@
     &nbsp;·&nbsp; Atualizado em {{ bi_data.atualizado_em[:10] }}
   </p>
   {% if user.role in ['admin', 'coordenacao'] %}
-  <label class="button-sm" style="cursor:pointer" for="upload-input">↑ Atualizar dados</label>
+  <label class="button-sm" style="cursor:pointer" for="upload-input">↑ Atualizar</label>
   {% endif %}
 </div>
 {% else %}
 <div class="import-banner">
-  <p><strong>Dados demonstrativos</strong> — Maio / 2026. Importe o relatório exportado pelo sistema para ver os indicadores reais da clínica.</p>
-  {% if user.role in ['admin', 'coordenacao'] %}
-  <label class="button-sm" style="cursor:pointer" for="upload-input">↑ Importar dados</label>
-  {% else %}
-  <span style="font-size:0.82rem;color:var(--muted)">Solicite ao administrador para importar os dados.</span>
-  {% endif %}
+  <p><strong>Dados demonstrativos</strong> — Maio / 2026. Abra a aba <strong>Financeiro</strong> para importar o relatório real.</p>
 </div>
-{% endif %}
-
-{% if user.role in ['admin', 'coordenacao'] %}
-<input type="file" id="upload-input" accept=".xls,.xlsx,.html,.htm" style="display:none" />
-<div id="upload-status" style="display:none;padding:12px 18px;border-radius:14px;font-weight:700;margin-top:-4px;"></div>
 {% endif %}
 
 <!-- Topbar com filtros -->
@@ -229,6 +224,44 @@
      ABA 2 — FINANCEIRO
 ═══════════════════════════════════════════ -->
 <section id="tab-financeiro" class="bi-panel">
+
+  <!-- Card de importação -->
+  {% if user.role in ['admin', 'coordenacao'] %}
+  <article class="dashboard-card glass upload-import-card">
+    <h3>Importar Relatório</h3>
+    <p class="helper">Exporte o relatório completo do sistema de agendamentos (.xls) e faça o upload para atualizar todos os indicadores.</p>
+
+    <!-- Estado: sem dados ou erro — mostra drop zone -->
+    <div id="upload-zone-wrap" {% if bi_data %}style="display:none"{% endif %}>
+      <div class="upload-zone" id="upload-zone">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+          <rect width="40" height="40" rx="10" fill="rgba(229,98,46,0.10)"/>
+          <path d="M20 26V14M20 14l-5 5M20 14l5 5" stroke="var(--primary-strong)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 28h16" stroke="var(--primary-strong)" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <p class="uz-title">Arraste o arquivo aqui</p>
+        <p class="uz-sub">ou clique no botão para selecionar do computador</p>
+        <label class="uz-btn" for="upload-input">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2M8 2v8M8 2L5 5M8 2l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Selecionar arquivo .xls
+        </label>
+        <p class="uz-hint">Arquivo .xls exportado pelo sistema — até 50 MB</p>
+      </div>
+      <div class="upload-progress" id="upload-progress"></div>
+    </div>
+
+    <!-- Estado: dados carregados — mostra resumo + botão atualizar -->
+    <div class="datos-ok {% if bi_data %}show{% endif %}" id="datos-ok-wrap">
+      <div class="datos-ok-info">
+        <strong>Dados importados com sucesso</strong><br>
+        <span id="datos-ok-detail">
+          {% if bi_data %}{{ bi_data.periodo.label }} · {{ bi_data.total_registros }} registros · {{ bi_data.atualizado_em[:10] }}{% endif %}
+        </span>
+      </div>
+      <label class="datos-ok-btn" for="upload-input">↑ Atualizar dados</label>
+    </div>
+  </article>
+  {% endif %}
 
   <div class="kpi-row">
     <article class="kpi-card glass">
@@ -792,38 +825,56 @@ const USANDO_DADOS_REAIS = false;
 
 /* ── Upload ── */
 {% if user.role in ['admin', 'coordenacao'] %}
-document.getElementById("upload-input").addEventListener("change", async function() {
-  const file = this.files[0];
+async function doUpload(file) {
   if (!file) return;
-  const statusEl = document.getElementById("upload-status");
-  statusEl.style.display = "block";
-  statusEl.style.background = "rgba(238,157,79,0.12)";
-  statusEl.style.border = "1px solid rgba(238,157,79,0.35)";
-  statusEl.style.color = "var(--text)";
-  statusEl.textContent = "⏳ Processando arquivo...";
-
+  const prog = document.getElementById("upload-progress");
+  if (prog) {
+    prog.style.display = "block";
+    prog.className = "upload-progress";
+    prog.textContent = "⏳ Processando arquivo...";
+  }
   const fd = new FormData();
   fd.append("file", file);
   try {
-    const r = await fetch("/bi/upload", { method: "POST", body: fd });
+    const r    = await fetch("/bi/upload", { method: "POST", body: fd });
     const data = await r.json();
     if (data.ok) {
-      statusEl.style.background = "rgba(49,166,106,0.12)";
-      statusEl.style.borderColor = "rgba(49,166,106,0.35)";
-      statusEl.style.color = "#1a6b42";
-      statusEl.textContent = `✅ Importado! ${data.linhas} registros — ${data.periodo}`;
-      setTimeout(() => location.reload(), 1500);
+      if (prog) {
+        prog.className = "upload-progress ok";
+        prog.textContent = `✅ Importado com sucesso! ${data.linhas} registros — ${data.periodo}`;
+      }
+      setTimeout(() => location.reload(), 1400);
     } else {
-      statusEl.style.background = "rgba(215,53,25,0.10)";
-      statusEl.style.borderColor = "rgba(215,53,25,0.25)";
-      statusEl.style.color = "var(--accent)";
-      statusEl.textContent = "❌ " + data.erro;
+      if (prog) {
+        prog.className = "upload-progress err";
+        prog.textContent = "❌ " + data.erro;
+      }
     }
   } catch(e) {
-    statusEl.textContent = "❌ Erro de conexão.";
+    if (prog) {
+      prog.className = "upload-progress err";
+      prog.textContent = "❌ Erro de conexão. Verifique o servidor.";
+    }
   }
+}
+
+/* File input change */
+document.getElementById("upload-input").addEventListener("change", function() {
+  if (this.files[0]) doUpload(this.files[0]);
   this.value = "";
 });
+
+/* Drag-and-drop zone */
+const zone = document.getElementById("upload-zone");
+if (zone) {
+  ["dragenter","dragover"].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.add("dragover");
+  }));
+  ["dragleave","drop"].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.remove("dragover");
+    if (ev === "drop" && e.dataTransfer.files[0]) doUpload(e.dataTransfer.files[0]);
+  }));
+}
 {% endif %}
 
 /* ── Configuração global do Chart.js ── */
