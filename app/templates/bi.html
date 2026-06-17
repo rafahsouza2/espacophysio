@@ -1452,7 +1452,7 @@ document.querySelectorAll(".bi-sub-tab").forEach(btn => {
 /* ── Inicializar gráficos da primeira aba visível ── */
 try { initVisaoGeral(); } catch(e) { console.error("initVisaoGeral:", e); }
 
-/* ── Toggle B.I sidebar ── */
+/* ── Toggle B.I sidebar (desktop only) ── */
 (function() {
   const biLink   = document.getElementById("menu-bi-link");
   const biArrow  = document.getElementById("bi-arrow");
@@ -1460,6 +1460,7 @@ try { initVisaoGeral(); } catch(e) { console.error("initVisaoGeral:", e); }
   if (!biLink || !biTabs) return;
   biLink.addEventListener("click", function(e) {
     e.preventDefault();
+    if (window.innerWidth <= 1180) return;  // mobile: tabs sempre visíveis
     const collapsed = biTabs.classList.toggle("collapsed");
     if (biArrow) biArrow.classList.toggle("open", !collapsed);
   });

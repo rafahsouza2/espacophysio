@@ -778,6 +778,49 @@ a#menu-bi-link { display: flex; align-items: center; }
   .bottom-grid { grid-template-columns: 1fr; }
   .stats-grid  { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .module-grid, .quick-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+
+  /* BI sidebar tabs → barra horizontal rolável abaixo do nav */
+  .sidebar { flex-wrap: wrap; align-items: flex-start; }
+  .menu-group { flex: 1; flex-wrap: wrap; }
+  .bi-sidebar-tabs {
+    flex-basis: 100%;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    max-height: 52px !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    gap: 4px;
+    padding: 6px 0 2px !important;
+    border-top: 1px solid rgba(229,98,46,0.18);
+    margin-top: 4px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .bi-sidebar-tabs.collapsed {
+    max-height: 52px !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+  .bi-sidebar-tabs::-webkit-scrollbar { display: none; }
+  .bi-sidebar-tab {
+    flex-shrink: 0;
+    width: auto !important;
+    padding: 7px 13px 7px 13px !important;
+    font-size: 0.82rem;
+    border-radius: 10px;
+  }
+  .bi-sidebar-tab::before { display: none; }
+  .bi-sidebar-upload-btn {
+    border-top: none !important;
+    border-left: 1px solid var(--line);
+    margin-top: 0 !important;
+    padding-top: 7px !important;
+    padding-left: 13px !important;
+    margin-left: 4px;
+  }
+  .bi-arrow { display: none; }
 }
 
 /* ── Tablet portrait (≤ 900px) ── */
