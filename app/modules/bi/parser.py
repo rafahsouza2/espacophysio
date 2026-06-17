@@ -113,6 +113,8 @@ def parse_xls(content: bytes) -> dict:
     col_valor     = _col(["Valor Cobrado"])
     col_como      = _col(["Como nos achou"])
     col_cod       = _col(["digo"])          # Nome do Código
+    col_agendador = _col(["Agendou"])       # Usuário que Agendou
+    col_esp_raw   = _col(["Especialidade"]) # Especialidade do profissional
 
     if not col_dt_atend or not col_status:
         raise ValueError("Arquivo não reconhecido: colunas obrigatórias ausentes.")
@@ -148,6 +150,33 @@ def parse_xls(content: bytes) -> dict:
 
     taxa_atend  = round(total_atendimentos / total_agendados * 100, 2) if total_agendados else 0
     taxa_faltas = round(total_faltas / total_agendados * 100, 2)        if total_agendados else 0
+
+    # ── Produção financeira (Valor Cobrado) ────────────────────────────────────
+    if col_valor:
+        df_real = df_real.copy()
+        df_real["_val"] = pd.to_numeric(df_real[col_valor], errors="coerce").fillna(0)
+        total_producao = float(df_real["_val"].sum())
+        ticket_medio   = round(total_producao / total_atendimentos, 2) if total_atendimentos else 0.0
+    else:
+        total_producao = 0.0
+        ticket_medio   = 0.0
+
+    # Convênio vs Particular split
+    conv_producao = 0.0; part_producao = 0.0
+    conv_pct = 0.0; part_pct = 0.0
+    if col_convenio and col_valor:
+        is_part = df_real[col_convenio].str.upper().str.contains("PARTICULAR", na=False)
+        part_producao = float(df_real.loc[is_part,  "_val"].sum())
+        conv_producao = float(df_real.loc[~is_part, "_val"].sum())
+        if total_producao > 0:
+            conv_pct = round(conv_producao / total_producao * 100, 1)
+            part_pct = round(part_producao / total_producao * 100, 1)
+
+    # ── Status do Agendamento granular ─────────────────────────────────────────
+    status_agendamento: dict = {}
+    if col_status_ag:
+        sg = df[col_status_ag].fillna("Não Definido").value_counts()
+        status_agendamento = {str(k): int(v) for k, v in sg.items()}
 
     # ── Período ───────────────────────────────────────────────────────────────
     dt_min = df["_dt"].min()
@@ -197,11 +226,67 @@ def parse_xls(content: bytes) -> dict:
             ag = int(un_agend.get(u, r))
             unidades.append({"nome": u, "agendados": ag, "realizados": int(r)})
 
-    # ── Por convênio ──────────────────────────────────────────────────────────
+    # ── Por convênio (com produção financeira) ────────────────────────────────
     convenios = []
     if col_convenio:
-        cv = df_real.groupby(col_convenio).size().sort_values(ascending=False).head(12)
-        convenios = [{"nome": k, "qtde": int(v)} for k, v in cv.items()]
+        grp_cols = {"qtde": (col_paciente if col_paciente else col_convenio, "count")}
+        if col_valor:
+            grp_cols["producao"] = ("_val", "sum")
+        cv_grp = df_real.groupby(col_convenio).agg(**grp_cols)
+        sort_by = "producao" if col_valor else "qtde"
+        cv_grp = cv_grp.sort_values(sort_by, ascending=False).head(15)
+        for k, row in cv_grp.iterrows():
+            qtde = int(row["qtde"])
+            prod = float(row.get("producao", 0))
+            convenios.append({
+                "nome":     k,
+                "qtde":     qtde,
+                "producao": round(prod, 2),
+                "ticket":   round(prod / qtde, 2) if qtde and prod else 0.0,
+                "pct":      round(prod / total_producao * 100, 1) if total_producao else 0.0,
+            })
+
+    # ── Por tipo de atendimento (Nome do Código) ──────────────────────────────
+    tipos = []
+    if col_cod:
+        grp_t = {"qtde": (col_paciente if col_paciente else col_cod, "count")}
+        if col_valor:
+            grp_t["producao"] = ("_val", "sum")
+        tp_grp = df_real.groupby(col_cod).agg(**grp_t).sort_values(
+            "producao" if col_valor else "qtde", ascending=False
+        ).head(20)
+        for k, row in tp_grp.iterrows():
+            qtde = int(row["qtde"])
+            prod = float(row.get("producao", 0))
+            tipos.append({
+                "nome":     str(k),
+                "qtde":     qtde,
+                "producao": round(prod, 2),
+                "ticket":   round(prod / qtde, 2) if qtde and prod else 0.0,
+                "pct":      round(prod / total_producao * 100, 1) if total_producao else 0.0,
+            })
+
+    # ── Por agendador (Usuário que Agendou) ───────────────────────────────────
+    agendadores = []
+    if col_agendador:
+        ag_total_df = df.groupby(col_agendador).size().rename("total_ag")
+        grp_a = {"finalizados": (col_paciente if col_paciente else col_agendador, "count")}
+        if col_valor:
+            grp_a["producao"] = ("_val", "sum")
+        ag_grp = df_real.groupby(col_agendador).agg(**grp_a).sort_values(
+            "producao" if col_valor else "finalizados", ascending=False
+        )
+        for k, row in ag_grp.iterrows():
+            fin  = int(row["finalizados"])
+            prod = float(row.get("producao", 0))
+            total_ag = int(ag_total_df.get(k, fin))
+            agendadores.append({
+                "nome":       str(k),
+                "agendamentos": total_ag,
+                "finalizados":  fin,
+                "producao":   round(prod, 2),
+                "ticket":     round(prod / fin, 2) if fin and prod else 0.0,
+            })
 
     # ── Por sexo ──────────────────────────────────────────────────────────────
     genero = {"feminino": 0, "masculino": 0}
@@ -259,20 +344,29 @@ def parse_xls(content: bytes) -> dict:
             "total_faltas":         total_faltas,
             "total_cancelados":     int(total_cancelados),
             "pacientes_com_faltas": int(pacientes_com_faltas),
+            "total_producao":       round(total_producao, 2),
+            "ticket_medio":         round(ticket_medio, 2),
+            "conv_producao":        round(conv_producao, 2),
+            "part_producao":        round(part_producao, 2),
+            "conv_pct":             conv_pct,
+            "part_pct":             part_pct,
         },
         "evolucao_diaria": {
             "labels":       evo_labels,
             "atendimentos": evo_atend,
             "faltas":       evo_faltas,
         },
-        "profissionais":  profissionais,
-        "especialidades": especialidades,
-        "unidades":       unidades,
-        "convenios":      convenios,
-        "genero":         genero,
-        "faixa_etaria":   faixa_etaria,
-        "novas_entradas": novas_entradas,
-        "como_achou":     como_achou,
+        "profissionais":      profissionais,
+        "especialidades":     especialidades,
+        "unidades":           unidades,
+        "convenios":          convenios,
+        "tipos":              tipos,
+        "agendadores":        agendadores,
+        "status_agendamento": status_agendamento,
+        "genero":             genero,
+        "faixa_etaria":       faixa_etaria,
+        "novas_entradas":     novas_entradas,
+        "como_achou":         como_achou,
     }
 
     # Salvar em disco

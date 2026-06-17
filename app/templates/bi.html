@@ -85,6 +85,7 @@
 <!-- Navegação por abas -->
 <nav class="bi-tabs" id="bi-main-tabs">
   <button class="bi-tab active" data-target="tab-visao-geral">Visão Geral</button>
+  <button class="bi-tab" data-target="tab-financeiro">Financeiro</button>
   <button class="bi-tab" data-target="tab-profissionais">Profissionais</button>
   <button class="bi-tab" data-target="tab-pacientes">Pacientes</button>
   <button class="bi-tab" data-target="tab-programas">Programas</button>
@@ -96,7 +97,7 @@
 ═══════════════════════════════════════════ -->
 <section id="tab-visao-geral" class="bi-panel active">
 
-  <!-- KPIs -->
+  <!-- KPIs operacionais -->
   {% set k = bi_data.kpis if bi_data else None %}
   {% set per = bi_data.periodo.label if bi_data else "Mai / 2026" %}
   <div class="kpi-row">
@@ -119,6 +120,30 @@
       <span class="kpi-label">Taxa de Faltas</span>
       <span class="kpi-value warn">{{ "%.2f"|format(k.taxa_faltas)|replace(".",",") ~ "%" if k else "33,81%" }}</span>
       <span class="kpi-sub">{{ k.total_faltas ~ " faltas no período" if k else "1.091 faltas no período" }}</span>
+    </article>
+  </div>
+
+  <!-- KPIs financeiros -->
+  <div class="kpi-row">
+    <article class="kpi-card glass">
+      <span class="kpi-label">Produção Total</span>
+      <span class="kpi-value" id="kpi-producao-total">R$ 387.240</span>
+      <span class="kpi-sub" id="kpi-producao-sub">{{ per }}</span>
+    </article>
+    <article class="kpi-card glass">
+      <span class="kpi-label">Ticket Médio</span>
+      <span class="kpi-value mid" id="kpi-ticket-medio">R$ 181</span>
+      <span class="kpi-sub">Por atendimento realizado</span>
+    </article>
+    <article class="kpi-card glass">
+      <span class="kpi-label">% Convênio</span>
+      <span class="kpi-value" id="kpi-conv-pct">72,4%</span>
+      <span class="kpi-sub" id="kpi-conv-prod">R$ 280.342 via convênios</span>
+    </article>
+    <article class="kpi-card glass">
+      <span class="kpi-label">% Particular</span>
+      <span class="kpi-value mid" id="kpi-part-pct">27,6%</span>
+      <span class="kpi-sub" id="kpi-part-prod">R$ 106.898 particular</span>
     </article>
   </div>
 
@@ -169,11 +194,160 @@
     </div>
   </article>
 
+  <!-- Status do Agendamento -->
+  <article class="dashboard-card glass">
+    <h3>Status dos Agendamentos</h3>
+    <p class="helper">Distribuição atual dos agendamentos por status no período selecionado.</p>
+    <div class="kpi-row" id="status-ag-row">
+      <article class="kpi-card glass">
+        <span class="kpi-label">Realizados / Finalizados</span>
+        <span class="kpi-value ok" id="sag-finalizado">—</span>
+        <span class="kpi-sub">Atendidos com sucesso</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Consulta Marcada</span>
+        <span class="kpi-value mid" id="sag-marcada">—</span>
+        <span class="kpi-sub">Agendados / aguardando</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Confirmados</span>
+        <span class="kpi-value ok" id="sag-confirmada">—</span>
+        <span class="kpi-sub">Paciente confirmou presença</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Faltas / Desmarcados</span>
+        <span class="kpi-value warn" id="sag-faltou">—</span>
+        <span class="kpi-sub">Faltou + Desmarcou</span>
+      </article>
+    </div>
+  </article>
+
 </section>
 
 
 <!-- ═══════════════════════════════════════════
-     ABA 2 — PROFISSIONAIS
+     ABA 2 — FINANCEIRO
+═══════════════════════════════════════════ -->
+<section id="tab-financeiro" class="bi-panel">
+
+  <div class="kpi-row">
+    <article class="kpi-card glass">
+      <span class="kpi-label">Produção Total</span>
+      <span class="kpi-value" id="fin-producao-total">R$ 387.240</span>
+      <span class="kpi-sub" id="fin-producao-sub">Mai / 2026</span>
+    </article>
+    <article class="kpi-card glass">
+      <span class="kpi-label">Ticket Médio</span>
+      <span class="kpi-value mid" id="fin-ticket">R$ 181</span>
+      <span class="kpi-sub">Por atendimento realizado</span>
+    </article>
+    <article class="kpi-card glass">
+      <span class="kpi-label">Convênio</span>
+      <span class="kpi-value" id="fin-conv-pct">72,4%</span>
+      <span class="kpi-sub" id="fin-conv-val">R$ 280.342</span>
+    </article>
+    <article class="kpi-card glass">
+      <span class="kpi-label">Particular</span>
+      <span class="kpi-value mid" id="fin-part-pct">27,6%</span>
+      <span class="kpi-sub" id="fin-part-val">R$ 106.898</span>
+    </article>
+  </div>
+
+  <div class="two-col-charts">
+    <article class="dashboard-card glass">
+      <h3>Produção por Tipo de Atendimento</h3>
+      <p class="helper">Ranking de serviços por volume de produção financeira.</p>
+      <div class="chart-wrap-lg"><canvas id="chart-tipos-bar"></canvas></div>
+    </article>
+    <article class="dashboard-card glass">
+      <h3>Convênio vs Particular</h3>
+      <p class="helper">Composição da produção no período.</p>
+      <div class="chart-wrap" style="max-width:260px;margin:14px auto 0"><canvas id="chart-conv-part"></canvas></div>
+    </article>
+  </div>
+
+  <article class="dashboard-card glass">
+    <h3>Tabela de Produção por Tipo de Atendimento</h3>
+    <p class="helper">Detalhamento por serviço — quantidade, produção total, ticket médio.</p>
+    <div style="overflow-x:auto">
+      <table class="bi-table">
+        <thead>
+          <tr>
+            <th>Tipo / Serviço</th>
+            <th class="right">Qtde</th>
+            <th class="right">Produção R$</th>
+            <th class="right">% Total</th>
+            <th class="right">Ticket Médio</th>
+          </tr>
+        </thead>
+        <tbody id="table-tipos-body">
+          <tr><td>ANUAL 2X</td><td class="right">412</td><td class="right">R$ 84.330</td><td class="right">21,8%</td><td class="right">R$ 204,7</td></tr>
+          <tr><td>FISIOTERAPIA SIMPLES</td><td class="right">389</td><td class="right">R$ 62.240</td><td class="right">16,1%</td><td class="right">R$ 160,0</td></tr>
+          <tr><td>PILATES</td><td class="right">301</td><td class="right">R$ 54.180</td><td class="right">14,0%</td><td class="right">R$ 180,0</td></tr>
+          <tr><td>RPG</td><td class="right">172</td><td class="right">R$ 43.000</td><td class="right">11,1%</td><td class="right">R$ 250,0</td></tr>
+          <tr><td>SEMESTRAL 3X</td><td class="right">210</td><td class="right">R$ 38.220</td><td class="right">9,9%</td><td class="right">R$ 182,0</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="dashboard-card glass">
+    <h3>Produção por Convênio</h3>
+    <p class="helper">Ranking por produção financeira — com ticket médio por convênio.</p>
+    <div style="overflow-x:auto">
+      <table class="bi-table">
+        <thead>
+          <tr>
+            <th>Convênio</th>
+            <th class="right">Atendimentos</th>
+            <th class="right">Produção R$</th>
+            <th class="right">Ticket Médio</th>
+            <th class="right">% Total</th>
+          </tr>
+        </thead>
+        <tbody id="table-convenios-body">
+          <tr><td>CÂMARA DOS DEPUTADOS</td><td class="right">341</td><td class="right">R$ 78.430</td><td class="right">R$ 229,9</td><td class="right ok">20,2%</td></tr>
+          <tr><td>PARTICULAR</td><td class="right">276</td><td class="right">R$ 55.200</td><td class="right">R$ 200,0</td><td class="right mid">14,3%</td></tr>
+          <tr><td>TJDFT</td><td class="right">287</td><td class="right">R$ 51.660</td><td class="right">R$ 180,0</td><td class="right">13,3%</td></tr>
+          <tr><td>SAÚDE CAIXA</td><td class="right">198</td><td class="right">R$ 35.640</td><td class="right">R$ 180,0</td><td class="right">9,2%</td></tr>
+          <tr><td>PLAN ASSISTE/MPU</td><td class="right">162</td><td class="right">R$ 29.160</td><td class="right">R$ 180,0</td><td class="right">7,5%</td></tr>
+        </tbody>
+        <tfoot id="table-convenios-foot">
+          <tr><td><strong>Total</strong></td><td class="right">2.136</td><td class="right">R$ 387.240</td><td class="right">R$ 181,3</td><td class="right ok"><strong>100%</strong></td></tr>
+        </tfoot>
+      </table>
+    </div>
+  </article>
+
+  <article class="dashboard-card glass">
+    <h3>Produção por Agendador</h3>
+    <p class="helper">Performance individual de cada atendente — agendamentos, finalizados e produção gerada.</p>
+    <div style="overflow-x:auto">
+      <table class="bi-table">
+        <thead>
+          <tr>
+            <th>Agendador</th>
+            <th class="right">Agendamentos</th>
+            <th class="right">Finalizados</th>
+            <th class="right">Produção R$</th>
+            <th class="right">Ticket Médio</th>
+          </tr>
+        </thead>
+        <tbody id="table-agendadores-body">
+          <tr><td>natalia.souza</td><td class="right">312</td><td class="right ok">248</td><td class="right">R$ 44.640</td><td class="right">R$ 180,0</td></tr>
+          <tr><td>kamylle.silva</td><td class="right">298</td><td class="right ok">231</td><td class="right">R$ 41.580</td><td class="right">R$ 180,0</td></tr>
+          <tr><td>dayane.araujo</td><td class="right">276</td><td class="right ok">215</td><td class="right">R$ 38.700</td><td class="right">R$ 180,0</td></tr>
+          <tr><td>lays.alencar</td><td class="right">254</td><td class="right ok">198</td><td class="right">R$ 35.640</td><td class="right">R$ 180,0</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+</section>
+
+
+<!-- ═══════════════════════════════════════════
+     ABA 3 — PROFISSIONAIS
 ═══════════════════════════════════════════ -->
 <section id="tab-profissionais" class="bi-panel">
 
@@ -686,6 +860,8 @@ function mkChart(id, cfg) {
 /* ── Helpers ── */
 function fmtNum(n) { return n.toLocaleString("pt-BR"); }
 function fmtPct(n) { return n.toFixed(2).replace(".", ",") + "%"; }
+function fmtR$(v) { return "R$ " + v.toLocaleString("pt-BR", {minimumFractionDigits:2, maximumFractionDigits:2}); }
+function fmtR$K(v) { return v >= 1000 ? "R$ " + (v/1000).toFixed(0) + "k" : "R$ " + v.toFixed(0); }
 
 /* ── Visão Geral ── */
 function initVisaoGeral() {
@@ -725,6 +901,32 @@ function initVisaoGeral() {
       }
     }
   });
+
+  /* KPIs financeiros no topo da Visão Geral */
+  if (SERVER) {
+    const k  = SERVER.kpis;
+    const el = id => document.getElementById(id);
+    const per = SERVER.periodo.label;
+    if (k.total_producao > 0) {
+      if (el("kpi-producao-total")) el("kpi-producao-total").textContent = fmtR$(k.total_producao);
+      if (el("kpi-producao-sub"))   el("kpi-producao-sub").textContent   = per;
+      if (el("kpi-ticket-medio"))   el("kpi-ticket-medio").textContent   = fmtR$(k.ticket_medio);
+      if (el("kpi-conv-pct"))       el("kpi-conv-pct").textContent       = k.conv_pct.toFixed(1).replace(".", ",") + "%";
+      if (el("kpi-conv-prod"))      el("kpi-conv-prod").textContent      = fmtR$(k.conv_producao) + " via convênios";
+      if (el("kpi-part-pct"))       el("kpi-part-pct").textContent       = k.part_pct.toFixed(1).replace(".", ",") + "%";
+      if (el("kpi-part-prod"))      el("kpi-part-prod").textContent      = fmtR$(k.part_producao) + " particular";
+    }
+    /* Status do Agendamento */
+    const sa = SERVER.status_agendamento || {};
+    const saFinaliz = (sa["FINALIZADA"] || 0) + (sa["CONSULTA REALIZADA"] || 0) + k.total_atendimentos;
+    const saMarcada = sa["CONSULTA MARCADA"] || sa["Não Definido"] || 0;
+    const saConfirm = sa["Confirmada"] || 0;
+    const saFaltou  = (sa["Faltou"] || 0) + (sa["Desmarcou"] || 0) + (sa["Desistiu"] || 0) + k.total_faltas;
+    if (el("sag-finalizado")) el("sag-finalizado").textContent = fmtNum(saFinaliz);
+    if (el("sag-marcada"))    el("sag-marcada").textContent    = fmtNum(saMarcada);
+    if (el("sag-confirmada")) el("sag-confirmada").textContent = fmtNum(saConfirm);
+    if (el("sag-faltou"))     el("sag-faltou").textContent     = fmtNum(saFaltou);
+  }
 
   /* Tabela de capacidade por especialidade */
   if (SERVER && SERVER.especialidades && SERVER.especialidades.length) {
@@ -993,9 +1195,151 @@ function initDor() {
   });
 }
 
+/* ── Financeiro ── */
+function initFinanceiro() {
+  const tipos = SERVER ? SERVER.tipos : [
+    {nome:"ANUAL 2X",qtde:412,producao:84330,pct:21.8,ticket:204.7},
+    {nome:"FISIOTERAPIA SIMPLES",qtde:389,producao:62240,pct:16.1,ticket:160.0},
+    {nome:"PILATES",qtde:301,producao:54180,pct:14.0,ticket:180.0},
+    {nome:"RPG",qtde:172,producao:43000,pct:11.1,ticket:250.0},
+    {nome:"SEMESTRAL 3X",qtde:210,producao:38220,pct:9.9,ticket:182.0},
+    {nome:"ACUPUNTURA",qtde:165,producao:32175,pct:8.3,ticket:195.0},
+    {nome:"YOGA",qtde:107,producao:17120,pct:4.4,ticket:160.0},
+    {nome:"MASSAGEM",qtde:94,producao:13160,pct:3.4,ticket:140.0},
+  ];
+  const convs = SERVER ? SERVER.convenios : [
+    {nome:"CÂMARA DOS DEPUTADOS",qtde:341,producao:78430,ticket:229.9,pct:20.2},
+    {nome:"PARTICULAR",qtde:276,producao:55200,ticket:200.0,pct:14.3},
+    {nome:"TJDFT",qtde:287,producao:51660,ticket:180.0,pct:13.3},
+    {nome:"SAÚDE CAIXA",qtde:198,producao:35640,ticket:180.0,pct:9.2},
+    {nome:"PLAN ASSISTE/MPU",qtde:162,producao:29160,ticket:180.0,pct:7.5},
+    {nome:"ASSEFAZ",qtde:143,producao:25740,ticket:180.0,pct:6.6},
+  ];
+  const ags = SERVER ? SERVER.agendadores : [
+    {nome:"natalia.souza",agendamentos:312,finalizados:248,producao:44640,ticket:180.0},
+    {nome:"kamylle.silva",agendamentos:298,finalizados:231,producao:41580,ticket:180.0},
+    {nome:"dayane.araujo",agendamentos:276,finalizados:215,producao:38700,ticket:180.0},
+    {nome:"lays.alencar",agendamentos:254,finalizados:198,producao:35640,ticket:180.0},
+    {nome:"dayanneosorio.asasul",agendamentos:231,finalizados:176,producao:31680,ticket:180.0},
+  ];
+
+  const kpis = SERVER ? SERVER.kpis : {
+    total_producao:387240, ticket_medio:181.3,
+    conv_pct:72.4, part_pct:27.6,
+    conv_producao:280342, part_producao:106898
+  };
+
+  /* Update KPI cards */
+  const el = id => document.getElementById(id);
+  if (kpis.total_producao > 0) {
+    if (el("fin-producao-total")) el("fin-producao-total").textContent = fmtR$(kpis.total_producao);
+    if (el("fin-producao-sub"))   el("fin-producao-sub").textContent   = SERVER ? SERVER.periodo.label : "Mai / 2026";
+    if (el("fin-ticket"))         el("fin-ticket").textContent         = fmtR$(kpis.ticket_medio);
+    if (el("fin-conv-pct"))       el("fin-conv-pct").textContent       = kpis.conv_pct.toFixed(1).replace(".",",") + "%";
+    if (el("fin-conv-val"))       el("fin-conv-val").textContent       = fmtR$(kpis.conv_producao);
+    if (el("fin-part-pct"))       el("fin-part-pct").textContent       = kpis.part_pct.toFixed(1).replace(".",",") + "%";
+    if (el("fin-part-val"))       el("fin-part-val").textContent       = fmtR$(kpis.part_producao);
+  }
+
+  /* Bar chart: tipos */
+  mkChart("chart-tipos-bar", {
+    type: "bar",
+    data: {
+      labels: tipos.map(t => t.nome.length > 22 ? t.nome.substring(0,22)+"…" : t.nome),
+      datasets: [{
+        label: "Produção R$",
+        data: tipos.map(t => t.producao),
+        backgroundColor: PALETA.slice(0, tipos.length), borderRadius: 5
+      }]
+    },
+    options: {
+      indexAxis: "y", responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => " " + fmtR$(ctx.raw) } }
+      },
+      scales: {
+        x: { beginAtZero: true, grid: { color: "rgba(21,21,21,0.05)" },
+          ticks: { callback: v => fmtR$K(v) } },
+        y: { grid: { display: false } }
+      }
+    }
+  });
+
+  /* Donut: convênio vs particular */
+  mkChart("chart-conv-part", {
+    type: "doughnut",
+    data: {
+      labels: ["Convênio", "Particular"],
+      datasets: [{
+        data: [kpis.conv_producao || kpis.conv_pct, kpis.part_producao || kpis.part_pct],
+        backgroundColor: [C_STRONG, C_ORANGE], borderWidth: 0, hoverOffset: 6
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: "62%",
+      plugins: {
+        legend: { position: "bottom" },
+        tooltip: { callbacks: { label: ctx => " " + (kpis.total_producao > 0 ? fmtR$(ctx.raw) : ctx.raw + "%") } }
+      }
+    }
+  });
+
+  /* Table: tipos */
+  const tbTipos = el("table-tipos-body");
+  if (tbTipos && tipos.length) {
+    tbTipos.innerHTML = tipos.map(t => `<tr>
+      <td>${t.nome}</td>
+      <td class="right">${fmtNum(t.qtde)}</td>
+      <td class="right">${t.producao > 0 ? fmtR$(t.producao) : "—"}</td>
+      <td class="right">${t.pct > 0 ? t.pct.toFixed(1).replace(".",",")+"%" : "—"}</td>
+      <td class="right">${t.ticket > 0 ? fmtR$(t.ticket) : "—"}</td>
+    </tr>`).join("");
+  }
+
+  /* Table: convênios */
+  const tbConvs = el("table-convenios-body");
+  const tfConvs = el("table-convenios-foot");
+  if (tbConvs && convs.length) {
+    tbConvs.innerHTML = convs.map(c => {
+      const pCls = c.nome.toUpperCase().includes("PARTICULAR") ? "mid" : "";
+      return `<tr>
+        <td>${c.nome}</td>
+        <td class="right">${fmtNum(c.qtde)}</td>
+        <td class="right">${c.producao > 0 ? fmtR$(c.producao) : "—"}</td>
+        <td class="right">${c.ticket > 0 ? fmtR$(c.ticket) : "—"}</td>
+        <td class="right ${pCls}">${c.pct > 0 ? c.pct.toFixed(1).replace(".",",")+"%" : "—"}</td>
+      </tr>`;
+    }).join("");
+    if (tfConvs && kpis.total_producao > 0) {
+      const totQtde = convs.reduce((s,c)=>s+c.qtde,0);
+      tfConvs.innerHTML = `<tr>
+        <td><strong>Total</strong></td>
+        <td class="right">${fmtNum(totQtde)}</td>
+        <td class="right">${fmtR$(kpis.total_producao)}</td>
+        <td class="right">${fmtR$(kpis.ticket_medio)}</td>
+        <td class="right ok"><strong>100%</strong></td>
+      </tr>`;
+    }
+  }
+
+  /* Table: agendadores */
+  const tbAgs = el("table-agendadores-body");
+  if (tbAgs && ags.length) {
+    tbAgs.innerHTML = ags.map(a => `<tr>
+      <td>${a.nome}</td>
+      <td class="right">${fmtNum(a.agendamentos)}</td>
+      <td class="right ok">${fmtNum(a.finalizados)}</td>
+      <td class="right">${a.producao > 0 ? fmtR$(a.producao) : "—"}</td>
+      <td class="right">${a.ticket > 0 ? fmtR$(a.ticket) : "—"}</td>
+    </tr>`).join("");
+  }
+}
+
 /* ── Lógica de abas principais ── */
 const mainInit = {
   "tab-visao-geral":   initVisaoGeral,
+  "tab-financeiro":    initFinanceiro,
   "tab-profissionais": initProfissionais,
   "tab-pacientes":     null,
   "tab-programas":     null
