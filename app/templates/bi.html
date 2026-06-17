@@ -29,17 +29,17 @@
 {% if bi_data %}
 <div class="import-banner import-banner--ok">
   <p>
-    <strong>Dados importados</strong> — {{ bi_data.periodo.label }}
+    <strong>Visualizando:</strong> {{ bi_data.periodo.label }}
     &nbsp;·&nbsp; {{ bi_data.total_registros }} registros
-    &nbsp;·&nbsp; Atualizado em {{ bi_data.atualizado_em[:10] }}
+    &nbsp;·&nbsp; {{ bi_data.kpis.total_atendimentos }} finalizados
   </p>
   {% if user.role in ['admin', 'coordenacao'] %}
-  <label class="button-sm" style="cursor:pointer" for="upload-input">↑ Atualizar</label>
+  <label class="button-sm" style="cursor:pointer" for="upload-input">↑ Novo upload</label>
   {% endif %}
 </div>
 {% else %}
 <div class="import-banner">
-  <p><strong>Dados demonstrativos</strong> — Maio / 2026. Abra a aba <strong>Financeiro</strong> para importar o relatório real.</p>
+  <p><strong>Dados demonstrativos</strong> — Importe um relatório na aba <strong>Financeiro</strong> para ver dados reais.</p>
 </div>
 {% endif %}
 
@@ -234,43 +234,44 @@
   <!-- Card de importação -->
   {% if user.role in ['admin', 'coordenacao'] %}
   <article class="dashboard-card glass upload-import-card">
-    <h3>Importar Relatório</h3>
-    <p class="helper">Exporte o relatório completo do sistema de agendamentos (.xls) e faça o upload para atualizar todos os indicadores.</p>
+    <h3>Importar Dados</h3>
+    <p class="helper">Faça upload do relatório exportado do sistema (.xls) para adicionar ao BI.</p>
 
-    <!-- Estado: sem dados ou erro — mostra drop zone -->
-    <div id="upload-zone-wrap" {% if bi_data %}style="display:none"{% endif %}>
-      <div class="upload-zone" id="upload-zone">
-        <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-          <rect width="40" height="40" rx="10" fill="rgba(229,98,46,0.10)"/>
-          <path d="M20 26V14M20 14l-5 5M20 14l5 5" stroke="var(--primary-strong)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M12 28h16" stroke="var(--primary-strong)" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <p class="uz-title">Arraste o arquivo aqui</p>
-        <p class="uz-sub">ou clique no botão para selecionar do computador</p>
-        <label class="uz-btn" for="upload-input">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2M8 2v8M8 2L5 5M8 2l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Selecionar arquivo .xls
-        </label>
-        <p class="uz-hint">Arquivo .xls exportado pelo sistema — até 50 MB</p>
-      </div>
-      <div class="upload-progress" id="upload-progress"></div>
+    <div class="upload-zone" id="upload-zone">
+      <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+        <rect width="44" height="44" rx="12" fill="rgba(229,98,46,0.10)"/>
+        <path d="M22 28V16M22 16l-6 6M22 16l6 6" stroke="var(--primary-strong)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M13 31h18" stroke="var(--primary-strong)" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <p class="uz-title">Arraste o arquivo aqui ou clique para selecionar</p>
+      <p class="uz-sub">Suporte: .xls exportado do iGut</p>
+      <label class="uz-btn" for="upload-input">Selecionar arquivo</label>
     </div>
-
-    <!-- Estado: dados carregados — mostra resumo + botão atualizar -->
-    <div class="datos-ok {% if bi_data %}show{% endif %}" id="datos-ok-wrap">
-      <div class="datos-ok-info">
-        <strong>Dados importados com sucesso</strong><br>
-        <span id="datos-ok-detail">
-          {% if bi_data %}{{ bi_data.periodo.label }} · {{ bi_data.total_registros }} registros · {{ bi_data.atualizado_em[:10] }}{% endif %}
-        </span>
-      </div>
-      <div class="datos-ok-actions">
-        <label class="datos-ok-btn" for="upload-input">↑ Atualizar dados</label>
-        <button class="datos-ok-btn datos-del-btn" onclick="doDelete()">✕ Excluir dados</button>
-      </div>
-    </div>
+    <div class="upload-progress" id="upload-progress"></div>
   </article>
   {% endif %}
+
+  <!-- Lista de relatórios importados -->
+  <article class="dashboard-card glass" id="reports-card" {% if not reports %}style="display:none"{% endif %}>
+    <h3 class="reports-list-title">Relatórios importados</h3>
+    <div class="reports-list" id="reports-list">
+      {% for r in reports %}
+      <div class="report-item {% if current_period == r.period_key or (not current_period and loop.first) %}report-item--active{% endif %}" data-period="{{ r.period_key }}" id="ritem-{{ r.period_key }}">
+        <div class="report-icon">📊</div>
+        <div class="report-info">
+          <strong>{{ r.periodo_label }}</strong>
+          <span>{{ "{:,}".format(r.total_registros).replace(",",".") }} atendimentos
+            · {{ "{:,}".format(r.total_atendimentos).replace(",",".") }} finalizados
+            · R$ {{ "{:,.2f}".format(r.total_producao or 0).replace(",","X").replace(".",",").replace("X",".") }}</span>
+        </div>
+        <a class="report-btn" href="/bi?period={{ r.period_key }}">Ver</a>
+        {% if user.role in ['admin', 'coordenacao'] %}
+        <button class="report-btn report-del" onclick="doDeleteReport('{{ r.period_key }}')">Excluir</button>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </article>
 
   <div class="kpi-row">
     <article class="kpi-card glass">
@@ -850,9 +851,9 @@ async function doUpload(file) {
     if (data.ok) {
       if (prog) {
         prog.className = "upload-progress ok";
-        prog.textContent = `✅ Importado com sucesso! ${data.linhas} registros — ${data.periodo}`;
+        prog.textContent = `✅ ${data.periodo} importado — ${data.linhas} registros`;
       }
-      setTimeout(() => location.reload(), 1400);
+      setTimeout(() => { location.href = "/bi?period=" + data.period_key; }, 1200);
     } else {
       if (prog) {
         prog.className = "upload-progress err";
@@ -868,10 +869,13 @@ async function doUpload(file) {
 }
 
 /* File input change */
-document.getElementById("upload-input").addEventListener("change", function() {
-  if (this.files[0]) doUpload(this.files[0]);
-  this.value = "";
-});
+const uploadInput = document.getElementById("upload-input");
+if (uploadInput) {
+  uploadInput.addEventListener("change", function() {
+    if (this.files[0]) doUpload(this.files[0]);
+    this.value = "";
+  });
+}
 
 /* Drag-and-drop zone */
 const zone = document.getElementById("upload-zone");
@@ -883,6 +887,34 @@ if (zone) {
     e.preventDefault(); zone.classList.remove("dragover");
     if (ev === "drop" && e.dataTransfer.files[0]) doUpload(e.dataTransfer.files[0]);
   }));
+  zone.addEventListener("click", () => { if (uploadInput) uploadInput.click(); });
+}
+
+async function doDeleteReport(periodKey) {
+  if (!confirm("Excluir relatório? Esta ação não pode ser desfeita.")) return;
+  try {
+    const r = await fetch("/bi/reports/" + periodKey, { method: "DELETE" });
+    const d = await r.json();
+    if (d.ok) {
+      const el = document.getElementById("ritem-" + periodKey);
+      if (el) el.remove();
+      // Se apagou o período atual, redireciona para /bi
+      const params = new URLSearchParams(location.search);
+      if (!params.get("period") || params.get("period") === periodKey) {
+        location.href = "/bi";
+      }
+      // Esconde card se lista ficou vazia
+      const list = document.getElementById("reports-list");
+      if (list && !list.children.length) {
+        const card = document.getElementById("reports-card");
+        if (card) card.style.display = "none";
+      }
+    } else {
+      alert("Erro ao excluir: " + d.erro);
+    }
+  } catch(e) {
+    alert("Erro de conexão.");
+  }
 }
 {% endif %}
 
@@ -1416,19 +1448,6 @@ document.querySelectorAll("#bi-sidebar-tabs .bi-sidebar-tab").forEach(btn => {
   });
 });
 
-{% if user.role in ['admin', 'coordenacao'] %}
-async function doDelete() {
-  if (!confirm("Excluir os dados importados? O dashboard voltará a exibir dados demonstrativos.")) return;
-  try {
-    const r = await fetch("/bi/data", { method: "DELETE" });
-    const d = await r.json();
-    if (d.ok) location.reload();
-    else alert("Erro ao excluir: " + d.erro);
-  } catch(e) {
-    alert("Erro de conexão.");
-  }
-}
-{% endif %}
 
 /* ── Lógica de sub-abas ── */
 document.querySelectorAll(".bi-sub-tab").forEach(btn => {

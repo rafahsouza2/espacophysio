@@ -15,26 +15,63 @@ import pandas as pd
 # ── Caminho do JSON local (fallback dev) ──────────────────────────────────────
 DATA_PATH = Path(__file__).parent.parent.parent / "data" / "bi_data.json"
 
-# ── Supabase cache (produção) ─────────────────────────────────────────────────
+# ── Supabase — multi-período ──────────────────────────────────────────────────
+def _period_key(data: dict) -> str:
+    """Gera chave '2026-05' a partir do período do resultado."""
+    inicio = data["periodo"]["inicio"]  # "01/05/2026"
+    p = inicio.split("/")
+    return f"{p[2]}-{p[1]}"
+
+
 def _save_supabase(data: dict) -> None:
     try:
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
-        sb.table("bi_cache").upsert({"id": 1, "data": data}).execute()
+        k = data["kpis"]
+        sb.table("bi_reports").upsert({
+            "period_key":         data["period_key"],
+            "periodo_label":      data["periodo"]["label"],
+            "periodo_inicio":     data["periodo"]["inicio"],
+            "periodo_fim":        data["periodo"]["fim"],
+            "total_registros":    data["total_registros"],
+            "total_atendimentos": k["total_atendimentos"],
+            "total_producao":     k["total_producao"],
+            "data":               data,
+        }).execute()
     except Exception as e:
         print("BI SUPABASE SAVE ERROR:", repr(e))
 
 
-def _load_supabase() -> dict | None:
+def _load_supabase(period_key: str | None = None) -> dict | None:
     try:
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
-        res = sb.table("bi_cache").select("data").eq("id", 1).limit(1).execute()
+        q = sb.table("bi_reports").select("data")
+        if period_key:
+            q = q.eq("period_key", period_key)
+        else:
+            q = q.order("period_key", desc=True).limit(1)
+        res = q.execute()
         if res.data:
             return res.data[0]["data"]
     except Exception as e:
         print("BI SUPABASE LOAD ERROR:", repr(e))
     return None
+
+
+def list_reports() -> list[dict]:
+    """Lista todos os relatórios importados com metadados (sem o JSON completo)."""
+    try:
+        from app.database import get_supabase_admin
+        sb = get_supabase_admin()
+        res = sb.table("bi_reports").select(
+            "period_key, periodo_label, periodo_inicio, periodo_fim, "
+            "total_registros, total_atendimentos, total_producao, updated_at"
+        ).order("period_key", desc=True).execute()
+        return res.data or []
+    except Exception as e:
+        print("BI SUPABASE LIST ERROR:", repr(e))
+    return []
 
 # ── Mapeamento de status ───────────────────────────────────────────────────────
 def _classify_status(s: str) -> str:
@@ -347,9 +384,13 @@ def parse_xls(content: bytes) -> dict:
         ca = df_real[col_como].value_counts().head(10)
         como_achou = {str(k): int(v) for k, v in ca.items()}
 
+    # ── Chave de período ──────────────────────────────────────────────────────
+    period_key = f"{dt_min.year}-{dt_min.month:02d}"
+
     # ── Resultado final ───────────────────────────────────────────────────────
     result = {
         "atualizado_em": datetime.now().isoformat(),
+        "period_key": period_key,
         "total_registros": total_registros,
         "periodo": {
             "inicio": dt_min.strftime("%d/%m/%Y"),
@@ -401,9 +442,9 @@ def parse_xls(content: bytes) -> dict:
     return result
 
 
-def load_saved() -> dict | None:
-    """Carrega o último processamento: Supabase (prod) ou disco (dev)."""
-    data = _load_supabase()
+def load_saved(period_key: str | None = None) -> dict | None:
+    """Carrega relatório: por period_key ou o mais recente. Supabase primeiro, disco como fallback."""
+    data = _load_supabase(period_key)
     if data:
         return data
     if DATA_PATH.exists():
@@ -414,12 +455,17 @@ def load_saved() -> dict | None:
     return None
 
 
-def clear_saved() -> None:
-    """Remove o cache do BI do Supabase e do disco."""
+def clear_saved(period_key: str | None = None) -> None:
+    """Remove relatório do Supabase (por period_key) e do disco."""
     try:
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
-        sb.table("bi_cache").delete().eq("id", 1).execute()
+        q = sb.table("bi_reports").delete()
+        if period_key:
+            q = q.eq("period_key", period_key)
+        else:
+            q = q.neq("period_key", "")
+        q.execute()
     except Exception as e:
         print("BI SUPABASE CLEAR ERROR:", repr(e))
     try:
