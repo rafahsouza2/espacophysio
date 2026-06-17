@@ -1,6 +1,16 @@
 {% extends "base.html" %}
 {% block title %}B.I — Indicadores{% endblock %}
 
+{% block sidebar_extra %}
+<div class="bi-sidebar-tabs" id="bi-sidebar-tabs">
+  <button class="bi-sidebar-tab active" data-target="tab-visao-geral">Visão Geral</button>
+  <button class="bi-sidebar-tab" data-target="tab-financeiro">Financeiro</button>
+  <button class="bi-sidebar-tab" data-target="tab-profissionais">Profissionais</button>
+  <button class="bi-sidebar-tab" data-target="tab-pacientes">Pacientes</button>
+  <button class="bi-sidebar-tab" data-target="tab-programas">Programas</button>
+</div>
+{% endblock %}
+
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 {% endblock %}
@@ -76,16 +86,6 @@
     </div>
   </div>
 </header>
-
-<!-- Navegação por abas -->
-<nav class="bi-tabs" id="bi-main-tabs">
-  <button class="bi-tab active" data-target="tab-visao-geral">Visão Geral</button>
-  <button class="bi-tab" data-target="tab-financeiro">Financeiro</button>
-  <button class="bi-tab" data-target="tab-profissionais">Profissionais</button>
-  <button class="bi-tab" data-target="tab-pacientes">Pacientes</button>
-  <button class="bi-tab" data-target="tab-programas">Programas</button>
-</nav>
-
 
 <!-- ═══════════════════════════════════════════
      ABA 1 — VISÃO GERAL
@@ -258,7 +258,10 @@
           {% if bi_data %}{{ bi_data.periodo.label }} · {{ bi_data.total_registros }} registros · {{ bi_data.atualizado_em[:10] }}{% endif %}
         </span>
       </div>
-      <label class="datos-ok-btn" for="upload-input">↑ Atualizar dados</label>
+      <div class="datos-ok-actions">
+        <label class="datos-ok-btn" for="upload-input">↑ Atualizar dados</label>
+        <button class="datos-ok-btn datos-del-btn" onclick="doDelete()">✕ Excluir dados</button>
+      </div>
     </div>
   </article>
   {% endif %}
@@ -1396,16 +1399,30 @@ const mainInit = {
   "tab-programas":     null
 };
 
-document.querySelectorAll("#bi-main-tabs .bi-tab").forEach(btn => {
+document.querySelectorAll("#bi-sidebar-tabs .bi-sidebar-tab").forEach(btn => {
   btn.addEventListener("click", () => {
     const target = btn.dataset.target;
-    document.querySelectorAll("#bi-main-tabs .bi-tab").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll("#bi-sidebar-tabs .bi-sidebar-tab").forEach(b => b.classList.remove("active"));
     document.querySelectorAll(".bi-panel").forEach(p => p.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById(target).classList.add("active");
     if (mainInit[target]) mainInit[target]();
   });
 });
+
+{% if user.role in ['admin', 'coordenacao'] %}
+async function doDelete() {
+  if (!confirm("Excluir os dados importados? O dashboard voltará a exibir dados demonstrativos.")) return;
+  try {
+    const r = await fetch("/bi/data", { method: "DELETE" });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else alert("Erro ao excluir: " + d.erro);
+  } catch(e) {
+    alert("Erro de conexão.");
+  }
+}
+{% endif %}
 
 /* ── Lógica de sub-abas ── */
 document.querySelectorAll(".bi-sub-tab").forEach(btn => {

@@ -403,14 +403,26 @@ def parse_xls(content: bytes) -> dict:
 
 def load_saved() -> dict | None:
     """Carrega o último processamento: Supabase (prod) ou disco (dev)."""
-    # Tenta Supabase primeiro
     data = _load_supabase()
     if data:
         return data
-    # Fallback: arquivo local
     if DATA_PATH.exists():
         try:
             return json.loads(DATA_PATH.read_text(encoding="utf-8"))
         except Exception:
             pass
     return None
+
+
+def clear_saved() -> None:
+    """Remove o cache do BI do Supabase e do disco."""
+    try:
+        from app.database import get_supabase_admin
+        sb = get_supabase_admin()
+        sb.table("bi_cache").delete().eq("id", 1).execute()
+    except Exception as e:
+        print("BI SUPABASE CLEAR ERROR:", repr(e))
+    try:
+        DATA_PATH.unlink(missing_ok=True)
+    except Exception:
+        pass

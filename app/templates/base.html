@@ -27,6 +27,7 @@
           <a class="menu-link {% if active_menu == 'bi' %}active{% endif %}" href="/bi">
             <span class="menu-icon">📊</span> B.I — Indicadores
           </a>
+          {% block sidebar_extra %}{% endblock %}
           <a class="menu-link {% if active_menu == 'comunicados' %}active{% endif %}" href="/comunicados">
             <span class="menu-icon">📢</span> Comunicados
           </a>

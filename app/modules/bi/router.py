@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from app.auth.dependencies import require_auth
-from app.modules.bi.parser import parse_xls, load_saved
+from app.modules.bi.parser import parse_xls, load_saved, clear_saved
 
 TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -61,3 +61,16 @@ async def bi_upload(
         "linhas":  data["total_registros"],
         "kpis":    data["kpis"],
     })
+
+
+@router.delete("/bi/data")
+async def bi_clear(request: Request, user=Depends(require_auth)):
+    if isinstance(user, RedirectResponse):
+        return user
+
+    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
+    if role not in ("admin", "coordenacao"):
+        return JSONResponse({"ok": False, "erro": "Sem permissão."}, status_code=403)
+
+    clear_saved()
+    return JSONResponse({"ok": True})
