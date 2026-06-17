@@ -59,6 +59,7 @@ async def bi_upload(
         return JSONResponse({"ok": False, "erro": "Erro ao processar o arquivo. Verifique se é o export correto."}, status_code=500)
 
     k = data["kpis"]
+    save_error = data.get("_save_error")
     return JSONResponse({
         "ok":         True,
         "period_key": data["period_key"],
@@ -66,6 +67,7 @@ async def bi_upload(
         "linhas":     data["total_registros"],
         "finalizados": k["total_atendimentos"],
         "producao":   k["total_producao"],
+        "save_error": save_error,  # None = salvo, string = erro do Supabase
     })
 
 

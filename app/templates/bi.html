@@ -850,10 +850,17 @@ async function doUpload(file) {
     const data = await r.json();
     if (data.ok) {
       if (prog) {
-        prog.className = "upload-progress ok";
-        prog.textContent = `✅ ${data.periodo} importado — ${data.linhas} registros`;
+        if (data.save_error) {
+          prog.className = "upload-progress err";
+          prog.textContent = `⚠️ Arquivo processado mas não salvo no banco: ${data.save_error}`;
+        } else {
+          prog.className = "upload-progress ok";
+          prog.textContent = `✅ ${data.periodo} importado — ${data.linhas} registros`;
+          setTimeout(() => { location.href = "/bi?period=" + data.period_key; }, 1200);
+        }
+      } else if (!data.save_error) {
+        setTimeout(() => { location.href = "/bi?period=" + data.period_key; }, 1200);
       }
-      setTimeout(() => { location.href = "/bi?period=" + data.period_key; }, 1200);
     } else {
       if (prog) {
         prog.className = "upload-progress err";

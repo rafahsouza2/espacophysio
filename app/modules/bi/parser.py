@@ -23,7 +23,8 @@ def _period_key(data: dict) -> str:
     return f"{p[2]}-{p[1]}"
 
 
-def _save_supabase(data: dict) -> None:
+def _save_supabase(data: dict) -> str | None:
+    """Salva no Supabase. Retorna None se ok, mensagem de erro se falhou."""
     try:
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
@@ -33,13 +34,16 @@ def _save_supabase(data: dict) -> None:
             "periodo_label":      data["periodo"]["label"],
             "periodo_inicio":     data["periodo"]["inicio"],
             "periodo_fim":        data["periodo"]["fim"],
-            "total_registros":    data["total_registros"],
-            "total_atendimentos": k["total_atendimentos"],
-            "total_producao":     k["total_producao"],
+            "total_registros":    int(data["total_registros"]),
+            "total_atendimentos": int(k["total_atendimentos"]),
+            "total_producao":     float(k["total_producao"]),
             "data":               data,
         }).execute()
+        return None
     except Exception as e:
-        print("BI SUPABASE SAVE ERROR:", repr(e))
+        msg = repr(e)
+        print("BI SUPABASE SAVE ERROR:", msg)
+        return msg
 
 
 def _load_supabase(period_key: str | None = None) -> dict | None:
@@ -81,7 +85,7 @@ def _classify_status(s: str) -> str:
     s = s.upper().strip()
     if any(k in s for k in ["REALIZ", "ATENDID", "EXECUT", "FINALIZ", "FATURAD", "CONCLU"]):
         return "realizado"
-    if any(k in s for k in ["FALTA", "AUSENT", "NAO COMPAREC", "NÃO COMPAREC", "FALTOU", "DESMARCOU", "DESISTIU"]):
+    if any(k in s for k in ["FALTA", "AUSENT", "NAO COMPAREC", "NÃO COMPAREC", "FALTOU", "DESMARCOU", "DESISTIU", "DESMARCADO"]):
         return "falta"
     if any(k in s for k in ["CANCEL", "DESMARC"]):
         return "cancelado"
@@ -199,12 +203,12 @@ def parse_xls(content: bytes) -> dict:
     df_falta = df[df["_status"] == "falta"]
     df_agend = df[df["_status"].isin(["realizado", "falta"])]  # realizados + faltas
 
-    total_atendimentos   = len(df_real)
-    total_faltas         = len(df_falta)
-    total_agendados      = len(df_agend)
-    total_cancelados     = (df["_status"] == "cancelado").sum()
-    total_pacientes      = df_real[col_paciente].nunique() if col_paciente else 0
-    pacientes_com_faltas = df_falta[col_paciente].nunique() if col_paciente else 0
+    total_atendimentos   = int(len(df_real))
+    total_faltas         = int(len(df_falta))
+    total_agendados      = int(len(df_agend))
+    total_cancelados     = int((df["_status"] == "cancelado").sum())
+    total_pacientes      = int(df_real[col_paciente].nunique()) if col_paciente else 0
+    pacientes_com_faltas = int(df_falta[col_paciente].nunique()) if col_paciente else 0
 
     taxa_atend  = round(total_atendimentos / total_agendados * 100, 2) if total_agendados else 0
     taxa_faltas = round(total_faltas / total_agendados * 100, 2)        if total_agendados else 0
@@ -432,12 +436,13 @@ def parse_xls(content: bytes) -> dict:
     }
 
     # Salvar: Supabase primeiro, disco como fallback dev
-    _save_supabase(result)
+    save_error = _save_supabase(result)
+    result["_save_error"] = save_error  # None = ok, string = mensagem do erro
     try:
         DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
         DATA_PATH.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        print("BI DISK SAVE ERROR:", repr(e))
 
     return result
 
