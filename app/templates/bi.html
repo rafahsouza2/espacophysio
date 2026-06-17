@@ -8,6 +8,9 @@
   <button class="bi-sidebar-tab" data-target="tab-profissionais">Profissionais</button>
   <button class="bi-sidebar-tab" data-target="tab-pacientes">Pacientes</button>
   <button class="bi-sidebar-tab" data-target="tab-programas">Programas</button>
+  {% if user.role in ['admin', 'coordenacao'] %}
+  <label class="bi-sidebar-tab bi-sidebar-upload-btn" for="upload-input">↑ Importar dados</label>
+  {% endif %}
 </div>
 {% endblock %}
 
@@ -86,6 +89,9 @@
     </div>
   </div>
 </header>
+
+<!-- Aviso quando filtro não bate com período do upload -->
+<div class="period-warning" id="period-warning"></div>
 
 <!-- ═══════════════════════════════════════════
      ABA 1 — VISÃO GERAL
@@ -1452,5 +1458,78 @@ document.querySelectorAll(".bi-sub-tab").forEach(btn => {
 
 /* ── Inicializar gráficos da primeira aba visível ── */
 initVisaoGeral();
+
+/* ── Toggle B.I sidebar ── */
+(function() {
+  const biLink   = document.getElementById("menu-bi-link");
+  const biArrow  = document.getElementById("bi-arrow");
+  const biTabs   = document.getElementById("bi-sidebar-tabs");
+  if (!biLink || !biTabs) return;
+  biLink.addEventListener("click", function(e) {
+    e.preventDefault();
+    const collapsed = biTabs.classList.toggle("collapsed");
+    if (biArrow) biArrow.classList.toggle("open", !collapsed);
+  });
+})();
+
+/* ── Filtros de período ── */
+(function() {
+  const MONTH_MAP = {
+    "01":"jan","02":"fev","03":"mar","04":"abr","05":"mai","06":"jun",
+    "07":"jul","08":"ago","09":"set","10":"out","11":"nov","12":"dez"
+  };
+  const MONTH_LABEL = {
+    "jan":"Janeiro","fev":"Fevereiro","mar":"Março","abr":"Abril",
+    "mai":"Maio","jun":"Junho","jul":"Julho","ago":"Agosto",
+    "set":"Setembro","out":"Outubro","nov":"Novembro","dez":"Dezembro"
+  };
+
+  const fMes  = document.getElementById("f-mes");
+  const fAno  = document.getElementById("f-ano");
+  const warn  = document.getElementById("period-warning");
+
+  if (!fMes || !fAno) return;
+
+  // Auto-selecionar período do upload
+  if (SERVER && SERVER.periodo) {
+    const parts = SERVER.periodo.inicio.split("/"); // dd/mm/yyyy
+    const mm = parts[1], yyyy = parts[2];
+    const mesVal = MONTH_MAP[mm];
+
+    // Selecionar mês
+    if (mesVal) {
+      for (let opt of fMes.options) {
+        if (opt.value === mesVal) { opt.selected = true; break; }
+      }
+    }
+
+    // Selecionar ano (adiciona se não existir)
+    let anoFound = false;
+    for (let opt of fAno.options) {
+      if (opt.textContent.trim() === yyyy) { opt.selected = true; anoFound = true; break; }
+    }
+    if (!anoFound && yyyy) {
+      const newOpt = new Option(yyyy, yyyy, true, true);
+      fAno.insertBefore(newOpt, fAno.firstChild);
+    }
+
+    // Verificar match ao mudar filtro
+    function checkMatch() {
+      const selMes = fMes.value;
+      const selAno = fAno.options[fAno.selectedIndex].textContent.trim();
+      const matches = selMes === mesVal && selAno === yyyy;
+      if (!matches && selMes !== "all") {
+        const nomeMes = MONTH_LABEL[selMes] || selMes;
+        warn.textContent = `Filtro: ${nomeMes} / ${selAno} — dados importados são de ${SERVER.periodo.label}. Importe o relatório deste período para ver os dados reais.`;
+        warn.classList.add("show");
+      } else {
+        warn.classList.remove("show");
+      }
+    }
+
+    fMes.addEventListener("change", checkMatch);
+    fAno.addEventListener("change", checkMatch);
+  }
+})();
 </script>
 {% endblock %}

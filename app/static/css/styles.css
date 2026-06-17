@@ -528,11 +528,24 @@ input { border: 0; outline: none; background: transparent; width: 100%; font-siz
 .datos-del-btn:hover { background: rgba(215,53,25,0.07); border-color: var(--accent); }
 .datos-ok-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
+/* B.I sidebar toggle arrow */
+a#menu-bi-link { display: flex; align-items: center; }
+.bi-arrow {
+  margin-left: auto; font-size: 0.75rem; opacity: 0.45;
+  transition: transform 0.22s ease, opacity 0.22s;
+  display: inline-block;
+}
+.bi-arrow.open { transform: rotate(90deg); opacity: 0.7; }
+
 /* Sidebar sub-tabs BI */
 .bi-sidebar-tabs {
   display: flex; flex-direction: column; gap: 1px;
   padding: 2px 0 8px 0;
+  overflow: hidden;
+  transition: max-height 0.28s ease, opacity 0.22s ease;
+  max-height: 400px; opacity: 1;
 }
+.bi-sidebar-tabs.collapsed { max-height: 0; opacity: 0; pointer-events: none; }
 .bi-sidebar-tab {
   display: block; width: 100%; background: none; border: none;
   text-align: left; padding: 7px 12px 7px 30px;
@@ -551,6 +564,29 @@ input { border: 0; outline: none; background: transparent; width: 100%; font-siz
 .bi-sidebar-tab:hover { background: rgba(229,98,46,0.08); color: var(--primary-strong); }
 .bi-sidebar-tab.active { background: rgba(229,98,46,0.12); color: var(--primary-strong); font-weight: 700; }
 .bi-sidebar-tab.active::before { opacity: 1; }
+
+/* Upload btn na sidebar */
+.bi-sidebar-upload-btn {
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 10px !important;
+  color: var(--primary-strong) !important;
+  font-weight: 700 !important;
+  cursor: pointer;
+}
+.bi-sidebar-upload-btn::before { display: none !important; }
+.bi-sidebar-upload-btn:hover { background: rgba(229,98,46,0.10) !important; }
+
+/* Aviso de período fora do upload */
+.period-warning {
+  display: none; margin: -4px 0 8px;
+  padding: 9px 14px;
+  background: rgba(255,181,71,0.10);
+  border: 1px solid rgba(255,181,71,0.30);
+  border-radius: 10px;
+  font-size: 0.8rem; color: #7a5000;
+}
+.period-warning.show { display: block; }
 
 /* Tabs principais */
 .bi-tabs {

@@ -24,8 +24,9 @@
         </div>
 
         <nav class="menu-group">
-          <a class="menu-link {% if active_menu == 'bi' %}active{% endif %}" href="/bi">
+          <a class="menu-link {% if active_menu == 'bi' %}active{% endif %}" href="/bi" id="menu-bi-link">
             <span class="menu-icon">📊</span> B.I — Indicadores
+            {% if active_menu == 'bi' %}<span class="bi-arrow open" id="bi-arrow">›</span>{% endif %}
           </a>
           {% block sidebar_extra %}{% endblock %}
           <a class="menu-link {% if active_menu == 'comunicados' %}active{% endif %}" href="/comunicados">
