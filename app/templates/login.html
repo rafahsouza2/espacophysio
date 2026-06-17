@@ -12,41 +12,65 @@
 <body>
   <main class="page-shell">
     <section class="login-layout">
+
       <aside class="hero-panel">
-        <div>
-          <div class="badge">Intranet corporativa</div>
-          <h1>Gestão integrada com visual atual e humano.</h1>
-          <p>Ambiente seguro para a equipe do Espaço Physio — operação, agenda, financeiro e muito mais em um só lugar.</p>
+        <div class="hero-content">
+          <img src="/static/assets/logo.png" alt="Espaço Physio" class="hero-logo" />
+          <h1>Bem-vindo à<br>nossa intranet.</h1>
+          <p>Este é o ambiente interno da equipe Espaço Physio. Aqui você acessa as ferramentas do seu dia a dia com segurança e agilidade.</p>
         </div>
 
-        <div class="feature-grid">
-          <article class="feature-item">
-            <strong>Financeiro centralizado</strong>
-            <span>Fluxo de caixa, recebimentos, repasses e indicadores em um só lugar.</span>
-          </article>
-          <article class="feature-item">
-            <strong>Agenda inteligente</strong>
-            <span>Visão rápida dos atendimentos do dia, status e encaixes prioritários.</span>
-          </article>
-          <article class="feature-item">
-            <strong>Operação conectada</strong>
-            <span>Cadastro, relatórios, comunicados e acessos por perfil de usuário.</span>
-          </article>
+        <div class="physio-scene">
+          <svg class="physio-svg" viewBox="0 0 340 380" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Anéis pulsantes -->
+            <circle cx="170" cy="230" r="70"  class="pulse-ring r1"/>
+            <circle cx="170" cy="230" r="110" class="pulse-ring r2"/>
+            <circle cx="170" cy="230" r="150" class="pulse-ring r3"/>
+
+            <!-- Figura humana — postura de alongamento (braços erguidos) -->
+            <g class="figure">
+              <!-- Cabeça -->
+              <circle cx="170" cy="55" r="24" stroke="rgba(255,255,255,0.92)" stroke-width="2.8" fill="rgba(255,255,255,0.06)"/>
+              <!-- Coluna/tronco -->
+              <line x1="170" y1="79" x2="170" y2="210" stroke="rgba(255,255,255,0.88)" stroke-width="2.8" stroke-linecap="round"/>
+              <!-- Braço esquerdo erguido -->
+              <path d="M170 115 Q130 88 98 62" stroke="rgba(255,255,255,0.88)" stroke-width="2.8" stroke-linecap="round" fill="none"/>
+              <!-- Braço direito erguido -->
+              <path d="M170 115 Q210 88 242 62" stroke="rgba(255,255,255,0.88)" stroke-width="2.8" stroke-linecap="round" fill="none"/>
+              <!-- Perna esquerda -->
+              <path d="M170 210 Q148 268 140 330" stroke="rgba(255,255,255,0.88)" stroke-width="2.8" stroke-linecap="round" fill="none"/>
+              <!-- Perna direita -->
+              <path d="M170 210 Q192 268 200 330" stroke="rgba(255,255,255,0.88)" stroke-width="2.8" stroke-linecap="round" fill="none"/>
+            </g>
+
+            <!-- Pontos flutuantes -->
+            <circle cx="58"  cy="155" r="5" class="dot d1" fill="rgba(238,157,79,0.80)"/>
+            <circle cx="295" cy="140" r="4" class="dot d2" fill="rgba(245,197,108,0.70)"/>
+            <circle cx="44"  cy="270" r="6" class="dot d3" fill="rgba(229,98,46,0.60)"/>
+            <circle cx="302" cy="275" r="5" class="dot d4" fill="rgba(238,157,79,0.65)"/>
+            <circle cx="100" cy="345" r="4" class="dot d5" fill="rgba(245,197,108,0.55)"/>
+            <circle cx="248" cy="350" r="5" class="dot d6" fill="rgba(229,98,46,0.55)"/>
+          </svg>
+
+          <!-- Linha ECG -->
+          <svg class="ecg-svg" viewBox="0 0 340 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <polyline class="ecg-line"
+              points="0,25 50,25 68,25 76,6 84,44 92,4 100,46 108,25 160,25 178,25 186,6 194,44 202,4 210,46 218,25 340,25"
+              stroke="rgba(238,157,79,0.65)" stroke-width="2.2" fill="none"
+              stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
         </div>
+
+        <p class="hero-footer">Acesso exclusivo para colaboradores · Espaço Physio © 2026</p>
       </aside>
 
       <section class="login-card glass">
-        <header class="login-header">
-          <div class="brand-chip">
-            <img src="/static/assets/logo.png" alt="Logo Espaço Physio" />
-            <span>Ambiente seguro para equipe interna</span>
-          </div>
-        </header>
+        <div class="login-brand">
+          <img src="/static/assets/logo.png" alt="Espaço Physio" class="login-logo" />
+        </div>
 
-        <img class="login-logo" src="/static/assets/logo.png" alt="Espaço Physio" />
-
-        <h2>Bem-vindo de volta</h2>
-        <p>Acesse sua conta para entrar na intranet, acompanhar módulos operacionais e navegar pelos painéis do dia.</p>
+        <h2>Entrar na intranet.</h2>
+        <p>Use seu e-mail e senha cadastrados pelo administrador.</p>
 
         {% if error %}
         <div class="alert-error">{{ error }}</div>
@@ -54,16 +78,16 @@
 
         <form class="form-grid" method="POST" action="/login">
           <div>
-            <label for="email">E-mail corporativo</label>
+            <label for="email">E-mail</label>
             <div class="input-shell">
-              <input id="email" name="email" type="email" placeholder="nome@espacophysio.com.br" required autocomplete="email" />
+              <input id="email" name="email" type="email" placeholder="seu@email.com.br" required autocomplete="email" />
             </div>
           </div>
 
           <div>
             <label for="password">Senha</label>
             <div class="input-shell">
-              <input id="password" name="password" type="password" placeholder="Digite sua senha" required autocomplete="current-password" />
+              <input id="password" name="password" type="password" placeholder="••••••••" required autocomplete="current-password" />
             </div>
           </div>
 
@@ -75,16 +99,14 @@
             <a class="muted-link" href="#">Esqueci minha senha</a>
           </div>
 
-          <div class="button-group">
-            <button class="button-primary" type="submit">Entrar</button>
-            <a class="button-secondary" href="mailto:ti@espacophysio.com.br" style="display:flex;align-items:center;justify-content:center;">Solicitar acesso</a>
-          </div>
+          <button class="button-primary" type="submit" style="width:100%;">Entrar</button>
         </form>
 
         <div class="footer-note">
-          Acesso restrito à equipe interna. Em caso de dúvidas, contate o administrador.
+          Problemas de acesso? Fale com o administrador do sistema.
         </div>
       </section>
+
     </section>
   </main>
 </body>

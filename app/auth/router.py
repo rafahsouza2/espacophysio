@@ -37,11 +37,13 @@ async def login(
             )
 
         redirect = RedirectResponse(url="/dashboard", status_code=302)
+        from app.config import settings
+        is_prod = settings.app_env == "production"
         redirect.set_cookie(
             key="access_token",
             value=response.session.access_token,
             httponly=True,
-            secure=True,
+            secure=is_prod,
             samesite="lax",
             max_age=60 * 60 * 8,  # 8 hours
         )
@@ -49,20 +51,23 @@ async def login(
             key="refresh_token",
             value=response.session.refresh_token,
             httponly=True,
-            secure=True,
+            secure=is_prod,
             samesite="lax",
             max_age=60 * 60 * 24 * 7,  # 7 days
         )
         return redirect
 
     except Exception as e:
+        import traceback
+        print("LOGIN ERROR:", repr(e))
+        traceback.print_exc()
         error_msg = str(e)
         if "Invalid login" in error_msg or "invalid_credentials" in error_msg:
             error_msg = "E-mail ou senha inválidos."
         elif "Email not confirmed" in error_msg:
             error_msg = "Por favor, confirme seu e-mail antes de acessar."
         else:
-            error_msg = "Erro ao realizar login. Tente novamente."
+            error_msg = f"Erro: {str(e)}"
 
         return templates.TemplateResponse(
             "login.html",

@@ -1,0 +1,1044 @@
+{% extends "base.html" %}
+{% block title %}B.I — Indicadores{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+
+<!-- Banner de importação / status dos dados -->
+{% if bi_data %}
+<div class="import-banner import-banner--ok">
+  <p>
+    <strong>Dados importados</strong> — {{ bi_data.periodo.label }}
+    &nbsp;·&nbsp; {{ bi_data.total_registros }} registros
+    &nbsp;·&nbsp; Atualizado em {{ bi_data.atualizado_em[:10] }}
+  </p>
+  {% if user.role in ['admin', 'coordenacao'] %}
+  <label class="button-sm" style="cursor:pointer" for="upload-input">↑ Atualizar dados</label>
+  {% endif %}
+</div>
+{% else %}
+<div class="import-banner">
+  <p><strong>Dados demonstrativos</strong> — Maio / 2026. Importe o relatório exportado pelo sistema para ver os indicadores reais da clínica.</p>
+  {% if user.role in ['admin', 'coordenacao'] %}
+  <label class="button-sm" style="cursor:pointer" for="upload-input">↑ Importar dados</label>
+  {% else %}
+  <span style="font-size:0.82rem;color:var(--muted)">Solicite ao administrador para importar os dados.</span>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if user.role in ['admin', 'coordenacao'] %}
+<input type="file" id="upload-input" accept=".xls,.xlsx,.html,.htm" style="display:none" />
+<div id="upload-status" style="display:none;padding:12px 18px;border-radius:14px;font-weight:700;margin-top:-4px;"></div>
+{% endif %}
+
+<!-- Topbar com filtros -->
+<header class="topbar glass bi-topbar">
+  <div>
+    <div class="eyebrow">Business Intelligence</div>
+    <h1>Indicadores Operacionais</h1>
+    <p>Visão consolidada da performance clínica por período e procedimento.</p>
+  </div>
+  <div class="bi-filters">
+    <div class="filter-group">
+      <label>Ano</label>
+      <select class="filter-select" id="f-ano">
+        <option>2026</option>
+        <option>2025</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Mês</label>
+      <select class="filter-select" id="f-mes">
+        <option value="all">Todos</option>
+        <option value="jan">Janeiro</option>
+        <option value="fev">Fevereiro</option>
+        <option value="mar">Março</option>
+        <option value="abr">Abril</option>
+        <option value="mai" selected>Maio</option>
+        <option value="jun">Junho</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Procedimento</label>
+      <select class="filter-select" id="f-proc">
+        <option value="all">Todos</option>
+        <option>Acupuntura</option>
+        <option>Fisioterapia</option>
+        <option>Pilates</option>
+        <option>RPG</option>
+        <option>Yoga</option>
+        <option>Massagem</option>
+        <option>Fonoaudiologia</option>
+        <option>Psicologia</option>
+        <option>Osteopatia</option>
+        <option>Terapia Ocupacional</option>
+        <option>Triagem / Retriagem</option>
+      </select>
+    </div>
+  </div>
+</header>
+
+<!-- Navegação por abas -->
+<nav class="bi-tabs" id="bi-main-tabs">
+  <button class="bi-tab active" data-target="tab-visao-geral">Visão Geral</button>
+  <button class="bi-tab" data-target="tab-profissionais">Profissionais</button>
+  <button class="bi-tab" data-target="tab-pacientes">Pacientes</button>
+  <button class="bi-tab" data-target="tab-programas">Programas</button>
+</nav>
+
+
+<!-- ═══════════════════════════════════════════
+     ABA 1 — VISÃO GERAL
+═══════════════════════════════════════════ -->
+<section id="tab-visao-geral" class="bi-panel active">
+
+  <!-- KPIs -->
+  {% set k = bi_data.kpis if bi_data else None %}
+  {% set per = bi_data.periodo.label if bi_data else "Mai / 2026" %}
+  <div class="kpi-row">
+    <article class="kpi-card glass">
+      <span class="kpi-label">Total de Atendimentos</span>
+      <span class="kpi-value">{{ "{:,.0f}".format(k.total_atendimentos).replace(",",".") if k else "2.136" }}</span>
+      <span class="kpi-sub">{{ per }}</span>
+    </article>
+    <article class="kpi-card glass">
+      <span class="kpi-label">Pacientes Atendidos</span>
+      <span class="kpi-value">{{ k.total_pacientes if k else "529" }}</span>
+      <span class="kpi-sub">Pacientes únicos no período</span>
+    </article>
+    <article class="kpi-card glass">
+      <span class="kpi-label">Taxa de Atendimento</span>
+      <span class="kpi-value ok">{{ "%.2f"|format(k.taxa_atendimento)|replace(".",",") ~ "%" if k else "66,19%" }}</span>
+      <span class="kpi-sub">Realizados / agendados</span>
+    </article>
+    <article class="kpi-card glass">
+      <span class="kpi-label">Taxa de Faltas</span>
+      <span class="kpi-value warn">{{ "%.2f"|format(k.taxa_faltas)|replace(".",",") ~ "%" if k else "33,81%" }}</span>
+      <span class="kpi-sub">{{ k.total_faltas ~ " faltas no período" if k else "1.091 faltas no período" }}</span>
+    </article>
+  </div>
+
+  <!-- Gráfico evolução diária -->
+  <article class="dashboard-card glass">
+    <h3>Evolução Diária dos Atendimentos</h3>
+    <p class="helper">Atendimentos realizados por dia útil — Maio 2026.</p>
+    <div class="chart-wrap-lg"><canvas id="chart-evolucao"></canvas></div>
+  </article>
+
+  <!-- Tabela de capacidade -->
+  <article class="dashboard-card glass">
+    <h3>Capacidade por Categoria de Procedimento</h3>
+    <p class="helper">Comparativo entre capacidade disponível, agendamentos e realizações por especialidade.</p>
+    <div style="overflow-x:auto">
+      <table class="bi-table">
+        <thead>
+          <tr>
+            <th>Categoria</th>
+            <th class="right">Cap. Total</th>
+            <th class="right">Bloqueadas</th>
+            <th class="right">Disponível</th>
+            <th class="right">Agendados</th>
+            <th class="right">Realizados</th>
+            <th class="right">% Atendimento</th>
+            <th class="right">Faltas</th>
+            <th class="right">% Faltas</th>
+          </tr>
+        </thead>
+        <tbody id="table-cap-body">
+          <tr><td>Acupuntura</td><td class="right">917</td><td class="right">191</td><td class="right">1.108</td><td class="right">882</td><td class="right">541</td><td class="right mid">61,34%</td><td class="right">341</td><td class="right warn">38,66%</td></tr>
+          <tr><td>Fisioterapia</td><td class="right">769</td><td class="right">97</td><td class="right">866</td><td class="right">701</td><td class="right">476</td><td class="right ok">67,90%</td><td class="right">225</td><td class="right">32,10%</td></tr>
+          <tr><td>Pilates</td><td class="right">612</td><td class="right">74</td><td class="right">686</td><td class="right">566</td><td class="right">365</td><td class="right mid">64,49%</td><td class="right">201</td><td class="right">35,51%</td></tr>
+          <tr><td>Educador Físico</td><td class="right">328</td><td class="right">46</td><td class="right">374</td><td class="right">29</td><td class="right">25</td><td class="right ok">86,21%</td><td class="right">4</td><td class="right ok">13,79%</td></tr>
+          <tr><td>RPG</td><td class="right">267</td><td class="right">15</td><td class="right">282</td><td class="right">259</td><td class="right">172</td><td class="right mid">66,41%</td><td class="right">87</td><td class="right">33,59%</td></tr>
+          <tr><td>Yoga</td><td class="right">182</td><td class="right">25</td><td class="right">207</td><td class="right">181</td><td class="right">107</td><td class="right mid">59,12%</td><td class="right">74</td><td class="right warn">40,88%</td></tr>
+          <tr><td>Massagem</td><td class="right">131</td><td class="right">1</td><td class="right">132</td><td class="right">140</td><td class="right">94</td><td class="right ok">67,14%</td><td class="right">46</td><td class="right">32,86%</td></tr>
+          <tr><td>Psicologia</td><td class="right">121</td><td class="right">14</td><td class="right">135</td><td class="right">103</td><td class="right">80</td><td class="right ok">77,67%</td><td class="right">23</td><td class="right ok">22,33%</td></tr>
+          <tr><td>Triagem</td><td class="right">120</td><td class="right">33</td><td class="right">153</td><td class="right">113</td><td class="right">90</td><td class="right ok">79,65%</td><td class="right">23</td><td class="right ok">20,35%</td></tr>
+          <tr><td>Fonoaudiologia</td><td class="right">118</td><td class="right">5</td><td class="right">123</td><td class="right">120</td><td class="right">87</td><td class="right ok">72,50%</td><td class="right">33</td><td class="right">27,50%</td></tr>
+          <tr><td>Terapia Ocupacional</td><td class="right">70</td><td class="right">7</td><td class="right">77</td><td class="right">71</td><td class="right">48</td><td class="right ok">67,61%</td><td class="right">23</td><td class="right">32,39%</td></tr>
+          <tr><td>Osteopatia</td><td class="right">61</td><td class="right">10</td><td class="right">71</td><td class="right">62</td><td class="right">51</td><td class="right ok">82,26%</td><td class="right">11</td><td class="right ok">17,74%</td></tr>
+        </tbody>
+        <tfoot id="table-cap-foot">
+          <tr><td><strong>Total</strong></td><td class="right">3.696</td><td class="right">518</td><td class="right">4.214</td><td class="right">3.227</td><td class="right">2.136</td><td class="right ok"><strong>66,19%</strong></td><td class="right">1.091</td><td class="right warn"><strong>33,81%</strong></td></tr>
+        </tfoot>
+      </table>
+    </div>
+  </article>
+
+</section>
+
+
+<!-- ═══════════════════════════════════════════
+     ABA 2 — PROFISSIONAIS
+═══════════════════════════════════════════ -->
+<section id="tab-profissionais" class="bi-panel">
+
+  <div class="kpi-row-3">
+    <article class="kpi-card glass">
+      <span class="kpi-label">Total no Período</span>
+      <span class="kpi-value" id="kpi-prof-total">2.136</span>
+      <span class="kpi-sub" id="kpi-prof-total-sub">Atendimentos realizados</span>
+    </article>
+    <article class="kpi-card glass">
+      <span class="kpi-label">Profissionais Ativos</span>
+      <span class="kpi-value mid" id="kpi-prof-ativos">16</span>
+      <span class="kpi-sub" id="kpi-prof-ativos-sub">Com atendimentos no período</span>
+    </article>
+    <article class="kpi-card glass">
+      <span class="kpi-label">Média por Profissional</span>
+      <span class="kpi-value" id="kpi-prof-media">134</span>
+      <span class="kpi-sub">Atendimentos / mês</span>
+    </article>
+  </div>
+
+  <div class="two-col-charts">
+    <article class="dashboard-card glass">
+      <h3>Procedimentos por Profissional</h3>
+      <p class="helper">Top 10 profissionais por volume de atendimentos.</p>
+      <div class="chart-wrap-lg"><canvas id="chart-por-prof"></canvas></div>
+    </article>
+    <article class="dashboard-card glass">
+      <h3>Atendimentos por Grupo</h3>
+      <p class="helper">Distribuição percentual por categoria.</p>
+      <div class="chart-wrap" style="max-width:280px;margin:14px auto 0"><canvas id="chart-grupo"></canvas></div>
+    </article>
+  </div>
+
+  <article class="dashboard-card glass">
+    <h3>Atendimentos por Categoria de Procedimento</h3>
+    <p class="helper">Volume absoluto por especialidade no período.</p>
+    <div class="chart-wrap-lg"><canvas id="chart-categoria"></canvas></div>
+  </article>
+
+</section>
+
+
+<!-- ═══════════════════════════════════════════
+     ABA 3 — PACIENTES
+═══════════════════════════════════════════ -->
+<section id="tab-pacientes" class="bi-panel">
+
+  <!-- Sub-tabs -->
+  <div class="bi-sub-nav" id="pac-sub-nav">
+    <button class="bi-sub-tab active" data-group="pac" data-target="pac-entradas">Novas Entradas</button>
+    <button class="bi-sub-tab" data-group="pac" data-target="pac-altas">Altas</button>
+    <button class="bi-sub-tab" data-group="pac" data-target="pac-faltas">Faltas</button>
+    <button class="bi-sub-tab" data-group="pac" data-target="pac-especiais">Atenção Especial</button>
+    <button class="bi-sub-tab" data-group="pac" data-target="pac-encaminhamentos">Encaminhamentos</button>
+  </div>
+
+  <!-- Novas Entradas -->
+  <div id="pac-entradas" class="bi-sub-panel active">
+    <div class="kpi-row-2">
+      <article class="kpi-card glass">
+        <span class="kpi-label">Novas Entradas</span>
+        <span class="kpi-value mid">46</span>
+        <span class="kpi-sub">Mai / 2026</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Principal Porta de Entrada</span>
+        <span class="kpi-value" style="font-size:1.4rem;line-height:1.2">Pedido Médico</span>
+        <span class="kpi-sub">Atenção Primária à Saúde (APS)</span>
+      </article>
+    </div>
+    <article class="dashboard-card glass">
+      <h3>Novos Pacientes — Maio 2026</h3>
+      <div style="overflow-x:auto">
+        <table class="bi-table">
+          <thead><tr><th>#</th><th>Nome do Paciente</th><th class="center">Idade</th><th>Porta de Entrada</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Adriano Batista Machado</td><td class="center">48</td><td><span class="proc-tag">Pedido Médico — APS</span></td></tr>
+            <tr><td>2</td><td>Ailton Bispo dos Santos Junior</td><td class="center">46</td><td><span class="proc-tag">Pedido Médico — APS</span></td></tr>
+            <tr><td>3</td><td>Aldery Silveira Junior</td><td class="center">71</td><td><span class="proc-tag">Pedido Médico — APS</span></td></tr>
+            <tr><td>4</td><td>Alexandra de Souza Trivelino</td><td class="center">45</td><td><span class="proc-tag">Pedido Médico — APS</span></td></tr>
+            <tr><td>5</td><td>Alexandre Pereira da Silva</td><td class="center">42</td><td><span class="proc-tag">Pedido Médico — APS</span></td></tr>
+            <tr><td>6</td><td>Ana Paula Zarske</td><td class="center">39</td><td><span class="proc-tag">Pedido Médico — APS</span></td></tr>
+            <tr><td>7</td><td>Ana Thaise Santana Teles Cardoso</td><td class="center">41</td><td><span class="proc-tag">Pedido Médico — APS</span></td></tr>
+            <tr><td>8</td><td>Anna Gabriela Neves de Oliveira Batista</td><td class="center">38</td><td><span class="proc-tag">Pedido Médico — APS</span></td></tr>
+            <tr><td>9</td><td>Ariane Carvalho de Araujo Santos</td><td class="center">40</td><td><span class="proc-tag">Pedido Médico — APS</span></td></tr>
+            <tr><td>10</td><td>Camila Brasil Braga Marques</td><td class="center">44</td><td><span class="proc-tag">Pedido Médico — APS</span></td></tr>
+          </tbody>
+          <tfoot><tr><td colspan="4">Total: <strong>46 novos pacientes</strong> no período</td></tr></tfoot>
+        </table>
+      </div>
+    </article>
+  </div>
+
+  <!-- Altas -->
+  <div id="pac-altas" class="bi-sub-panel">
+    <div class="kpi-row-2">
+      <article class="kpi-card glass">
+        <span class="kpi-label">Total de Altas</span>
+        <span class="kpi-value ok">19</span>
+        <span class="kpi-sub">Mai / 2026</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Pacientes com Alta</span>
+        <span class="kpi-value ok">19</span>
+        <span class="kpi-sub">Principal motivo: Melhora</span>
+      </article>
+    </div>
+    <article class="dashboard-card glass">
+      <h3>Altas Concedidas — Maio 2026</h3>
+      <div style="overflow-x:auto">
+        <table class="bi-table">
+          <thead><tr><th>Paciente</th><th>Procedimento</th><th>Motivo da Alta</th></tr></thead>
+          <tbody>
+            <tr><td>Alda Abraho Faiad de Moura</td><td><span class="proc-tag">Fonoaudiologia</span></td><td class="ok">Melhora</td></tr>
+            <tr><td>Ana Gabriela Lima Alves de Oliveira</td><td><span class="proc-tag">Osteopatia</span></td><td class="ok">Melhora</td></tr>
+            <tr><td>Andressa Bizerra Brito</td><td><span class="proc-tag">RPG</span></td><td class="ok">Melhora</td></tr>
+            <tr><td>Andressa Raquel da Costa Jesus</td><td><span class="proc-tag">Acupuntura</span></td><td class="ok">Melhora</td></tr>
+            <tr><td>Andreza Lemos Cignachi</td><td><span class="proc-tag">Fonoaudiologia</span></td><td class="ok">Melhora</td></tr>
+            <tr><td>Bruno Pastre Maximo</td><td><span class="proc-tag">Osteopatia</span></td><td class="ok">Melhora</td></tr>
+            <tr><td>Camila Martins Chixaro</td><td><span class="proc-tag">RPG</span></td><td class="warn">Mais de 90 dias</td></tr>
+            <tr><td>Cesar Augusto Aranha Ferreira Gehre</td><td><span class="proc-tag">Fonoaudiologia</span></td><td class="ok">Melhora</td></tr>
+            <tr><td>Jesseu Emerick</td><td><span class="proc-tag">Fisioterapia</span></td><td class="mid">Indisponibilidade</td></tr>
+            <tr><td>Layse Meira da Silva</td><td><span class="proc-tag">Fisioterapia</span></td><td class="warn">Mais de 90 dias</td></tr>
+            <tr><td>Leonardo Cavalcanti da Silva</td><td><span class="proc-tag">RPG</span></td><td class="ok">Melhora</td></tr>
+            <tr><td>Lilian Maria Thome Andrade Brandao</td><td><span class="proc-tag">Acupuntura</span></td><td class="ok">Melhora</td></tr>
+            <tr><td>Maria do Rosario Honorato</td><td><span class="proc-tag">Psicologia</span></td><td class="mid">Troca de Atividade</td></tr>
+            <tr><td>Maria do Socorro Sousa Rodrigues</td><td><span class="proc-tag">Fonoaudiologia</span></td><td class="mid">A pedido do paciente</td></tr>
+            <tr><td>Nelson Antonio Pimentel Jacinto</td><td><span class="proc-tag">Psicologia</span></td><td class="warn">Mais de 90 dias</td></tr>
+          </tbody>
+          <tfoot><tr><td colspan="3">Total: <strong>19 altas</strong> no período</td></tr></tfoot>
+        </table>
+      </div>
+    </article>
+  </div>
+
+  <!-- Faltas -->
+  <div id="pac-faltas" class="bi-sub-panel">
+    <div class="kpi-row-2">
+      <article class="kpi-card glass">
+        <span class="kpi-label">Total de Faltas</span>
+        <span class="kpi-value warn" id="kpi-faltas-total">1.174</span>
+        <span class="kpi-sub" id="kpi-faltas-sub">Mai / 2026</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Pacientes com Faltas</span>
+        <span class="kpi-value warn" id="kpi-faltas-pacs">447</span>
+        <span class="kpi-sub">Pacientes únicos que faltaram</span>
+      </article>
+    </div>
+    <article class="dashboard-card glass">
+      <h3>Evolução Diária das Faltas</h3>
+      <p class="helper">Volume de faltas por dia útil — Maio 2026.</p>
+      <div class="chart-wrap-lg"><canvas id="chart-faltas"></canvas></div>
+    </article>
+  </div>
+
+  <!-- Atenção Especial -->
+  <div id="pac-especiais" class="bi-sub-panel">
+    <div class="kpi-row kpi-row-3">
+      <article class="kpi-card glass">
+        <span class="kpi-label">Pacientes Atenção Especial</span>
+        <span class="kpi-value warn">16</span>
+        <span class="kpi-sub">Mai / 2026</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Faixa Etária Dominante</span>
+        <span class="kpi-value" style="font-size:1.5rem;line-height:1.2">60–93 anos</span>
+        <span class="kpi-sub">Média de idade elevada</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Principal Área</span>
+        <span class="kpi-value" style="font-size:1.5rem;line-height:1.2">Fisioterapia</span>
+        <span class="kpi-sub">68,75% dos casos especiais</span>
+      </article>
+    </div>
+    <div class="two-col-eq">
+      <article class="dashboard-card glass">
+        <h3>Por Faixa Etária</h3>
+        <div class="chart-wrap-sm" style="max-width:220px;margin:10px auto 0"><canvas id="chart-espec-faixa"></canvas></div>
+      </article>
+      <article class="dashboard-card glass">
+        <h3>Por Área de Atendimento</h3>
+        <div class="chart-wrap-sm" style="max-width:220px;margin:10px auto 0"><canvas id="chart-espec-area"></canvas></div>
+      </article>
+    </div>
+    <article class="dashboard-card glass">
+      <h3>Pacientes em Atenção Especial</h3>
+      <div style="overflow-x:auto">
+        <table class="bi-table">
+          <thead><tr><th>Paciente</th><th class="center">Idade</th><th>Motivo / Observação</th></tr></thead>
+          <tbody>
+            <tr><td>Maria Irene da Silva</td><td class="center">93</td><td class="warn">Difícil Manejo, Poliqueixosa</td></tr>
+            <tr><td>Gerardo Antonio Monteiro de Paiva Gama</td><td class="center">92</td><td class="warn">Risco de Queda, Senilidade</td></tr>
+            <tr><td>Nilza dos Santos Gomes</td><td class="center">86</td><td>Senilidade e Astenia</td></tr>
+            <tr><td>Zilene Garcia Flores</td><td class="center">83</td><td class="warn">Risco de Queda, Senilidade</td></tr>
+            <tr><td>Lucio Holanda Gondim de Freitas</td><td class="center">82</td><td class="warn">Risco de Queda, Senilidade</td></tr>
+            <tr><td>Vanildo Elias de Freitas</td><td class="center">82</td><td>Desequilíbrio Dinâmico</td></tr>
+            <tr><td>Amador Gil Marcelino</td><td class="center">81</td><td>Senilidade e Astenia</td></tr>
+            <tr><td>Vania Maria Costa Pereira do Lago</td><td class="center">80</td><td class="warn">Difícil Manejo, Poliqueixosa</td></tr>
+            <tr><td>Iria Pinheiro Brasil</td><td class="center">79</td><td>Senilidade e Difícil Manejo</td></tr>
+            <tr><td>Dermeval Pereira da Luz</td><td class="center">78</td><td>Senilidade, Pós CA Cérebro</td></tr>
+            <tr><td>Vania Torres Andrade</td><td class="center">77</td><td>Em Observação Após Mal Súbito</td></tr>
+            <tr><td>Alfredo de Souza Mendes</td><td class="center">76</td><td>Cadeirante</td></tr>
+            <tr><td>Ana Maria Silva de Freitas</td><td class="center">74</td><td class="warn">Obesidade Mórbida, Difícil Manejo</td></tr>
+            <tr><td>Ari Lopes Cunha</td><td class="center">74</td><td class="warn">Obesidade Mórbida, Difícil Manejo</td></tr>
+            <tr><td>Yolanda Seixas</td><td class="center">74</td><td>Artrite Reumatoide, Difícil Manejo</td></tr>
+            <tr><td>Rafael Moraes</td><td class="center">60</td><td>Desequilíbrio Dinâmico</td></tr>
+          </tbody>
+          <tfoot><tr><td colspan="3">Total: <strong>16 pacientes</strong> em acompanhamento especial</td></tr></tfoot>
+        </table>
+      </div>
+    </article>
+  </div>
+
+  <!-- Encaminhamentos -->
+  <div id="pac-encaminhamentos" class="bi-sub-panel">
+    <div class="kpi-row-2">
+      <article class="kpi-card glass">
+        <span class="kpi-label">Total de Encaminhamentos</span>
+        <span class="kpi-value mid">45</span>
+        <span class="kpi-sub">Para mais de 1 profissional</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Principal Encaminhador</span>
+        <span class="kpi-value" style="font-size:1.3rem;line-height:1.2">Pedro — Triagem</span>
+        <span class="kpi-sub">37 de 45 encaminhamentos</span>
+      </article>
+    </div>
+    <article class="dashboard-card glass">
+      <h3>Encaminhamentos por Profissional de Triagem</h3>
+      <p class="helper">Total de pacientes encaminhados para mais de um profissional.</p>
+      <div class="chart-wrap-sm"><canvas id="chart-encaminhamentos"></canvas></div>
+    </article>
+  </div>
+
+</section>
+
+
+<!-- ═══════════════════════════════════════════
+     ABA 4 — PROGRAMAS
+═══════════════════════════════════════════ -->
+<section id="tab-programas" class="bi-panel">
+
+  <!-- Sub-tabs -->
+  <div class="bi-sub-nav" id="prog-sub-nav">
+    <button class="bi-sub-tab active" data-group="prog" data-target="prog-oficinas">Oficinas</button>
+    <button class="bi-sub-tab" data-group="prog" data-target="prog-50mais">Oficina 50+</button>
+    <button class="bi-sub-tab" data-group="prog" data-target="prog-aps">APS</button>
+    <button class="bi-sub-tab" data-group="prog" data-target="prog-dor">Avaliação da Dor</button>
+  </div>
+
+  <!-- Oficinas -->
+  <div id="prog-oficinas" class="bi-sub-panel active">
+    <div class="kpi-row">
+      <article class="kpi-card glass">
+        <span class="kpi-label">Atendimentos Oficinas</span>
+        <span class="kpi-value">264</span>
+        <span class="kpi-sub">Mai / 2026</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Pacientes Únicos Inscritos</span>
+        <span class="kpi-value mid">76</span>
+        <span class="kpi-sub">Participantes no período</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Taxa de Engajamento</span>
+        <span class="kpi-value ok">49,81%</span>
+        <span class="kpi-sub">Participação / capacidade</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Média Diária</span>
+        <span class="kpi-value">13,9</span>
+        <span class="kpi-sub">Atendimentos / dia de oficina</span>
+      </article>
+    </div>
+    <div class="two-col-charts">
+      <article class="dashboard-card glass">
+        <h3>Atendimentos Oficinas por Dia</h3>
+        <p class="helper">Volume de participações por data de realização.</p>
+        <div class="chart-wrap-lg"><canvas id="chart-oficinas-dia"></canvas></div>
+      </article>
+      <article class="dashboard-card glass">
+        <h3>Por Profissional</h3>
+        <div style="overflow-x:auto;margin-top:14px">
+          <table class="bi-table">
+            <thead><tr><th>Profissional</th><th class="right">Atendimentos</th></tr></thead>
+            <tbody>
+              <tr><td>Kevin — Educador Físico</td><td class="right ok"><strong>216</strong></td></tr>
+              <tr><td>Rebeca dos Santos — Terapia Ocupacional</td><td class="right">47</td></tr>
+              <tr><td>Bruna Guedes — Yoga</td><td class="right">1</td></tr>
+            </tbody>
+            <tfoot><tr><td><strong>Total</strong></td><td class="right"><strong>264</strong></td></tr></tfoot>
+          </table>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <!-- Oficina 50+ -->
+  <div id="prog-50mais" class="bi-sub-panel">
+    <div class="kpi-row-2">
+      <article class="kpi-card glass">
+        <span class="kpi-label">Atendimentos Oficina 50+</span>
+        <span class="kpi-value mid">47</span>
+        <span class="kpi-sub">Mai / 2026</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Pacientes Únicos</span>
+        <span class="kpi-value mid">36</span>
+        <span class="kpi-sub">Participantes no período</span>
+      </article>
+    </div>
+    <div class="two-col-eq">
+      <article class="dashboard-card glass">
+        <h3>Por Tema da Oficina</h3>
+        <div style="overflow-x:auto;margin-top:14px">
+          <table class="bi-table">
+            <thead><tr><th>Tema da Oficina</th><th class="right">Participações</th></tr></thead>
+            <tbody>
+              <tr><td>Festa das Mães</td><td class="right ok"><strong>32</strong></td></tr>
+              <tr><td>Oficina de Prevenção de Quedas</td><td class="right">8</td></tr>
+              <tr><td>Hipertensão em Foco</td><td class="right">7</td></tr>
+            </tbody>
+            <tfoot><tr><td><strong>Total</strong></td><td class="right"><strong>47</strong></td></tr></tfoot>
+          </table>
+        </div>
+      </article>
+      <article class="dashboard-card glass">
+        <h3>Distribuição por Tema</h3>
+        <div class="chart-wrap-sm" style="max-width:220px;margin:10px auto 0"><canvas id="chart-50mais-temas"></canvas></div>
+      </article>
+    </div>
+  </div>
+
+  <!-- APS -->
+  <div id="prog-aps" class="bi-sub-panel">
+    <div class="kpi-row">
+      <article class="kpi-card glass">
+        <span class="kpi-label">Encaminhamentos APS</span>
+        <span class="kpi-value mid">7</span>
+        <span class="kpi-sub">No período selecionado</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">% APS</span>
+        <span class="kpi-value mid">3,52%</span>
+        <span class="kpi-sub">Sobre total de pacientes</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Vidas Ativadas APS</span>
+        <span class="kpi-value ok">247</span>
+        <span class="kpi-sub">Pacientes integrados ao programa</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Vidas Não Ativadas</span>
+        <span class="kpi-value warn">47</span>
+        <span class="kpi-sub">Aguardando ativação</span>
+      </article>
+    </div>
+    <article class="dashboard-card glass">
+      <h3>Evolução de Encaminhamentos APS</h3>
+      <p class="helper">Histórico de encaminhamentos ao programa APS — Mar a Mai/2026.</p>
+      <div class="chart-wrap"><canvas id="chart-aps"></canvas></div>
+    </article>
+  </div>
+
+  <!-- Avaliação da Dor -->
+  <div id="prog-dor" class="bi-sub-panel">
+    <div class="kpi-row">
+      <article class="kpi-card glass">
+        <span class="kpi-label">Total de Avaliações</span>
+        <span class="kpi-value">90</span>
+        <span class="kpi-sub">Mai / 2026</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Feminino</span>
+        <span class="kpi-value mid">51</span>
+        <span class="kpi-sub">56,67% das avaliações</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Masculino</span>
+        <span class="kpi-value">39</span>
+        <span class="kpi-sub">43,33% das avaliações</span>
+      </article>
+      <article class="kpi-card glass">
+        <span class="kpi-label">Intensidade Dominante</span>
+        <span class="kpi-value warn" style="font-size:1.6rem">Forte</span>
+        <span class="kpi-sub">38,89% dos votos (notas 5 e 6)</span>
+      </article>
+    </div>
+    <div class="two-col-charts">
+      <article class="dashboard-card glass">
+        <h3>Intensidade da Dor por Gênero</h3>
+        <p class="helper">Distribuição de intensidade separada por gênero biológico.</p>
+        <div class="chart-wrap-lg"><canvas id="chart-dor-intensidade"></canvas></div>
+      </article>
+      <article class="dashboard-card glass">
+        <h3>Votos por Gênero</h3>
+        <p class="helper">Proporção total de avaliações.</p>
+        <div class="chart-wrap" style="max-width:240px;margin:14px auto 0"><canvas id="chart-dor-genero"></canvas></div>
+      </article>
+    </div>
+    <article class="dashboard-card glass">
+      <h3>Tabela de Intensidades</h3>
+      <p class="helper">Escala 0–10: 0 = Sem Dor · 1–3 = Suave · 4–6 = Forte · 7–8 = Muito Forte · 9 = Máxima · 10 = Máxima</p>
+      <div style="overflow-x:auto">
+        <table class="bi-table">
+          <thead><tr><th>Intensidade</th><th class="right">Total Votos</th><th class="right">% Total</th></tr></thead>
+          <tbody>
+            <tr><td><strong>FORTE</strong> (notas 5–6)</td><td class="right"><strong>35</strong></td><td class="right warn"><strong>38,89%</strong></td></tr>
+            <tr><td style="padding-left:24px">· Nota 5</td><td class="right">18</td><td class="right">20,00%</td></tr>
+            <tr><td style="padding-left:24px">· Nota 6</td><td class="right">17</td><td class="right">18,89%</td></tr>
+            <tr><td><strong>MUITO FORTE</strong> (notas 7–8)</td><td class="right"><strong>20</strong></td><td class="right warn"><strong>22,22%</strong></td></tr>
+            <tr><td><strong>MODERADA</strong> (notas 3–4)</td><td class="right"><strong>18</strong></td><td class="right mid"><strong>20,00%</strong></td></tr>
+            <tr><td style="padding-left:24px">· Nota 3</td><td class="right">6</td><td class="right">6,67%</td></tr>
+            <tr><td style="padding-left:24px">· Nota 4</td><td class="right">12</td><td class="right">13,33%</td></tr>
+            <tr><td><strong>MÁXIMA</strong> (nota 9–10)</td><td class="right"><strong>8</strong></td><td class="right warn"><strong>8,89%</strong></td></tr>
+            <tr><td><strong>SEM DOR</strong> (nota 0)</td><td class="right"><strong>7</strong></td><td class="right ok"><strong>7,78%</strong></td></tr>
+            <tr><td><strong>SUAVE</strong> (notas 1–2)</td><td class="right"><strong>2</strong></td><td class="right ok"><strong>2,22%</strong></td></tr>
+          </tbody>
+          <tfoot><tr><td><strong>Total</strong></td><td class="right"><strong>90</strong></td><td class="right"><strong>100%</strong></td></tr></tfoot>
+        </table>
+      </div>
+    </article>
+  </div>
+
+</section>
+
+{% endblock %}
+
+
+{% block extra_scripts %}
+<script>
+/* ── Dados do servidor (reais) ou demo ── */
+{% if bi_data %}
+const SERVER = {{ bi_data | tojson }};
+const USANDO_DADOS_REAIS = true;
+{% else %}
+const SERVER = null;
+const USANDO_DADOS_REAIS = false;
+{% endif %}
+
+/* ── Upload ── */
+{% if user.role in ['admin', 'coordenacao'] %}
+document.getElementById("upload-input").addEventListener("change", async function() {
+  const file = this.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById("upload-status");
+  statusEl.style.display = "block";
+  statusEl.style.background = "rgba(238,157,79,0.12)";
+  statusEl.style.border = "1px solid rgba(238,157,79,0.35)";
+  statusEl.style.color = "var(--text)";
+  statusEl.textContent = "⏳ Processando arquivo...";
+
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const r = await fetch("/bi/upload", { method: "POST", body: fd });
+    const data = await r.json();
+    if (data.ok) {
+      statusEl.style.background = "rgba(49,166,106,0.12)";
+      statusEl.style.borderColor = "rgba(49,166,106,0.35)";
+      statusEl.style.color = "#1a6b42";
+      statusEl.textContent = `✅ Importado! ${data.linhas} registros — ${data.periodo}`;
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      statusEl.style.background = "rgba(215,53,25,0.10)";
+      statusEl.style.borderColor = "rgba(215,53,25,0.25)";
+      statusEl.style.color = "var(--accent)";
+      statusEl.textContent = "❌ " + data.erro;
+    }
+  } catch(e) {
+    statusEl.textContent = "❌ Erro de conexão.";
+  }
+  this.value = "";
+});
+{% endif %}
+
+/* ── Configuração global do Chart.js ── */
+Chart.defaults.font.family = "'Inter', ui-sans-serif, system-ui, sans-serif";
+Chart.defaults.font.size = 12;
+Chart.defaults.color = "#5f5f5e";
+Chart.defaults.plugins.legend.labels.usePointStyle = true;
+Chart.defaults.plugins.legend.labels.padding = 16;
+Chart.defaults.plugins.tooltip.backgroundColor = "rgba(7,7,7,0.88)";
+Chart.defaults.plugins.tooltip.padding = 12;
+Chart.defaults.plugins.tooltip.cornerRadius = 10;
+Chart.defaults.plugins.tooltip.titleFont = { weight: "800", size: 13 };
+
+const C_ORANGE  = "#ee9d4f";
+const C_STRONG  = "#e5622e";
+const C_ACCENT  = "#d73519";
+const C_WARM    = "#f5c56c";
+const C_NAVY    = "#1a237e";
+const C_SUCCESS = "#31a66a";
+const C_MUTED   = "#5f5f5e";
+
+const PALETA = [C_STRONG, C_ORANGE, C_WARM, "#f5a623", "#f8c15a", C_NAVY, "#3949ab", "#5c6bc0", "#7986cb", "#9fa8da", C_SUCCESS, "#6ec99a"];
+
+/* Registo de gráficos já inicializados */
+const charts = {};
+
+function mkChart(id, cfg) {
+  if (charts[id]) return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  charts[id] = new Chart(el, cfg);
+}
+
+/* ── Helpers ── */
+function fmtNum(n) { return n.toLocaleString("pt-BR"); }
+function fmtPct(n) { return n.toFixed(2).replace(".", ",") + "%"; }
+
+/* ── Visão Geral ── */
+function initVisaoGeral() {
+  const evo = SERVER ? SERVER.evolucao_diaria : {
+    labels: ["02/mai","04/mai","05/mai","06/mai","07/mai","08/mai","09/mai","11/mai","12/mai","13/mai","14/mai","15/mai","16/mai","18/mai","19/mai","20/mai","21/mai","22/mai","23/mai","25/mai","26/mai","27/mai","28/mai","29/mai","30/mai"],
+    atendimentos: [3,133,135,150,108,75,17,138,127,144,129,62,19,148,100,125,124,75,13,142,124,140,111,33,25],
+    faltas: [7,60,44,69,51,35,12,54,61,77,54,37,10,60,58,71,50,51,15,72,56,81,47,39,3]
+  };
+
+  mkChart("chart-evolucao", {
+    type: "line",
+    data: {
+      labels: evo.labels,
+      datasets: [
+        {
+          label: "Atendimentos realizados",
+          data: evo.atendimentos,
+          borderColor: C_STRONG, backgroundColor: "rgba(229,98,46,0.12)",
+          borderWidth: 2.5, tension: 0.35, fill: true,
+          pointBackgroundColor: C_STRONG, pointRadius: 4, pointHoverRadius: 6
+        },
+        {
+          label: "Faltas",
+          data: evo.faltas,
+          borderColor: C_ACCENT, backgroundColor: "rgba(215,53,25,0.06)",
+          borderWidth: 1.8, tension: 0.35, fill: true,
+          pointBackgroundColor: C_ACCENT, pointRadius: 3, pointHoverRadius: 5,
+          borderDash: [4, 3]
+        }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: "top" } },
+      scales: {
+        x: { grid: { color: "rgba(21,21,21,0.05)" } },
+        y: { beginAtZero: true, grid: { color: "rgba(21,21,21,0.05)" } }
+      }
+    }
+  });
+
+  /* Tabela de capacidade por especialidade */
+  if (SERVER && SERVER.especialidades && SERVER.especialidades.length) {
+    const esps = SERVER.especialidades;
+    const k    = SERVER.kpis;
+    const tbody = document.getElementById("table-cap-body");
+    const tfoot = document.getElementById("table-cap-foot");
+    if (tbody) {
+      tbody.innerHTML = esps.map(e => {
+        const tCls = e.taxa_atend >= 70 ? "ok" : e.taxa_atend >= 60 ? "mid" : "warn";
+        const fCls = e.taxa_faltas >= 35 ? "warn" : e.taxa_faltas >= 25 ? "" : "ok";
+        return `<tr>
+          <td>${e.cat}</td>
+          <td class="right">—</td><td class="right">—</td><td class="right">—</td>
+          <td class="right">${fmtNum(e.agendados)}</td>
+          <td class="right">${fmtNum(e.realizados)}</td>
+          <td class="right ${tCls}">${fmtPct(e.taxa_atend)}</td>
+          <td class="right">${fmtNum(e.faltas)}</td>
+          <td class="right ${fCls}">${fmtPct(e.taxa_faltas)}</td>
+        </tr>`;
+      }).join("");
+    }
+    if (tfoot) {
+      const tCls = k.taxa_atendimento >= 70 ? "ok" : "mid";
+      tfoot.innerHTML = `<tr>
+        <td><strong>Total</strong></td>
+        <td class="right">—</td><td class="right">—</td><td class="right">—</td>
+        <td class="right">${fmtNum(k.total_agendados)}</td>
+        <td class="right">${fmtNum(k.total_atendimentos)}</td>
+        <td class="right ${tCls}"><strong>${fmtPct(k.taxa_atendimento)}</strong></td>
+        <td class="right">${fmtNum(k.total_faltas)}</td>
+        <td class="right warn"><strong>${fmtPct(k.taxa_faltas)}</strong></td>
+      </tr>`;
+    }
+  }
+}
+
+/* ── Profissionais ── */
+function initProfissionais() {
+  const profs = SERVER ? SERVER.profissionais : [
+    {nome:"Juliana Elen — Acupuntura",qtde:296},{nome:"Raphael Caldeira — Acupuntura",qtde:245},
+    {nome:"Gabriella Karoline — Fisio",qtde:243},{nome:"Kevin — Educador Físico",qtde:241},
+    {nome:"Amanda Santana — Fisio",qtde:233},{nome:"Pedro Moura — Pilates",qtde:198},
+    {nome:"Raissa — Pilates",qtde:167},{nome:"Bruna Guedes — Yoga",qtde:108},
+    {nome:"Rebeca dos Santos — Fisio",qtde:95},{nome:"Elson — Massagem",qtde:94}
+  ];
+  const esps = SERVER ? SERVER.especialidades : [
+    {cat:"Acupuntura",realizados:541},{cat:"Fisioterapia",realizados:476},
+    {cat:"Pilates",realizados:365},{cat:"Oficinas Fixas",realizados:264},
+    {cat:"RPG",realizados:172},{cat:"Yoga",realizados:107},{cat:"Massagem",realizados:94},
+    {cat:"Fonoaudiologia",realizados:87},{cat:"Psicologia",realizados:80},
+    {cat:"Osteopatia",realizados:51},{cat:"Terapia Ocupacional",realizados:48},{cat:"Triagem",realizados:90}
+  ];
+
+  mkChart("chart-por-prof", {
+    type: "bar",
+    data: {
+      labels: profs.map(p => p.nome),
+      datasets: [{ label: "Atendimentos", data: profs.map(p => p.qtde),
+        backgroundColor: PALETA.slice(0, profs.length), borderRadius: 6 }]
+    },
+    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, grid: { color: "rgba(21,21,21,0.05)" } }, y: { grid: { display: false } } }
+    }
+  });
+
+  mkChart("chart-grupo", {
+    type: "doughnut",
+    data: {
+      labels: esps.map(e => e.cat),
+      datasets: [{ data: esps.map(e => e.realizados),
+        backgroundColor: PALETA.slice(0, esps.length), borderWidth: 0, hoverOffset: 6 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "62%",
+      plugins: { legend: { position: "bottom", labels: { font: { size: 11 } } } }
+    }
+  });
+
+  mkChart("chart-categoria", {
+    type: "bar",
+    data: {
+      labels: esps.map(e => e.cat),
+      datasets: [{ label: "Atendimentos", data: esps.map(e => e.realizados),
+        backgroundColor: C_STRONG, borderRadius: 5 }]
+    },
+    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, grid: { color: "rgba(21,21,21,0.05)" } }, y: { grid: { display: false } } }
+    }
+  });
+
+  if (SERVER) {
+    const k = SERVER.kpis;
+    const profCount = SERVER.profissionais.length;
+    const el = id => document.getElementById(id);
+    if (el("kpi-prof-total"))    el("kpi-prof-total").textContent    = fmtNum(k.total_atendimentos);
+    if (el("kpi-prof-ativos"))   el("kpi-prof-ativos").textContent   = profCount;
+    if (el("kpi-prof-media"))    el("kpi-prof-media").textContent    = profCount ? Math.round(k.total_atendimentos / profCount) : "—";
+    if (el("kpi-prof-ativos-sub")) el("kpi-prof-ativos-sub").textContent = `Com atendimentos em ${SERVER.periodo.label}`;
+    if (el("kpi-prof-total-sub"))  el("kpi-prof-total-sub").textContent  = `Atendimentos em ${SERVER.periodo.label}`;
+  }
+}
+
+/* ── Faltas ── */
+function initFaltas() {
+  const evo = SERVER ? SERVER.evolucao_diaria : {
+    labels: ["03/mai","04/mai","05/mai","06/mai","07/mai","08/mai","09/mai","10/mai","11/mai","12/mai","13/mai","14/mai","15/mai","17/mai","18/mai","19/mai","20/mai","21/mai","22/mai","24/mai","25/mai","26/mai","27/mai","28/mai","30/mai"],
+    faltas: [7,60,44,69,51,35,12,54,61,77,54,37,10,60,58,71,50,51,15,72,56,81,47,39,3]
+  };
+  mkChart("chart-faltas", {
+    type: "line",
+    data: {
+      labels: evo.labels,
+      datasets: [{
+        label: "Faltas",
+        data: evo.faltas,
+        borderColor: C_ACCENT, backgroundColor: "rgba(215,53,25,0.10)",
+        borderWidth: 2.5, tension: 0.35, fill: true,
+        pointBackgroundColor: C_ACCENT, pointRadius: 3, pointHoverRadius: 5
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: "rgba(21,21,21,0.05)" } },
+        y: { beginAtZero: true, grid: { color: "rgba(21,21,21,0.05)" } }
+      }
+    }
+  });
+
+  if (SERVER) {
+    const k  = SERVER.kpis;
+    const el = id => document.getElementById(id);
+    if (el("kpi-faltas-total")) el("kpi-faltas-total").textContent = fmtNum(k.total_faltas);
+    if (el("kpi-faltas-sub"))   el("kpi-faltas-sub").textContent   = SERVER.periodo.label;
+    if (el("kpi-faltas-pacs") && k.pacientes_com_faltas) {
+      el("kpi-faltas-pacs").textContent = fmtNum(k.pacientes_com_faltas);
+    }
+  }
+}
+
+/* ── Especiais ── */
+function initEspeciais() {
+  mkChart("chart-espec-faixa", {
+    type: "doughnut",
+    data: {
+      labels: ["Acima de 80 anos","Entre 60–79 anos"],
+      datasets: [{ data: [8,8], backgroundColor: [C_STRONG, C_NAVY], borderWidth: 0, hoverOffset: 5 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "58%",
+      plugins: { legend: { position: "bottom", labels: { font: { size: 11 } } } }
+    }
+  });
+
+  mkChart("chart-espec-area", {
+    type: "doughnut",
+    data: {
+      labels: ["Fisioterapia","Pilates"],
+      datasets: [{ data: [68.75,31.25], backgroundColor: [C_STRONG, C_NAVY], borderWidth: 0, hoverOffset: 5 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "58%",
+      plugins: { legend: { position: "bottom", labels: { font: { size: 11 } } } }
+    }
+  });
+}
+
+/* ── Encaminhamentos ── */
+function initEncaminhamentos() {
+  mkChart("chart-encaminhamentos", {
+    type: "bar",
+    data: {
+      labels: ["Pedro — Triagem","Carlos Santana — Triagem"],
+      datasets: [{ label: "Encaminhamentos", data: [37,8], backgroundColor: [C_STRONG, C_ORANGE], borderRadius: 6 }]
+    },
+    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true }, y: { grid: { display: false } } }
+    }
+  });
+}
+
+/* ── Oficinas ── */
+function initOficinas() {
+  mkChart("chart-oficinas-dia", {
+    type: "bar",
+    data: {
+      labels: ["04/mai","05/mai","06/mai","07/mai","08/mai","11/mai","12/mai","13/mai","14/mai","15/mai","18/mai","19/mai","21/mai","22/mai","25/mai","26/mai","27/mai","28/mai"],
+      datasets: [{
+        label: "Participações",
+        data: [16,15,20,13,17,17,32,14,12,7,14,13,12,8,11,17,13,13],
+        backgroundColor: C_ORANGE, borderRadius: 5
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: "rgba(21,21,21,0.05)" } } }
+    }
+  });
+}
+
+/* ── Oficina 50+ ── */
+function initOficina50() {
+  mkChart("chart-50mais-temas", {
+    type: "doughnut",
+    data: {
+      labels: ["Festa das Mães","Prev. Quedas","Hipertensão em Foco"],
+      datasets: [{ data: [32,8,7], backgroundColor: [C_STRONG, C_ORANGE, C_WARM], borderWidth: 0, hoverOffset: 5 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "58%",
+      plugins: { legend: { position: "bottom", labels: { font: { size: 11 } } } }
+    }
+  });
+}
+
+/* ── APS ── */
+function initAps() {
+  mkChart("chart-aps", {
+    type: "line",
+    data: {
+      labels: ["02/mar","04/mar","16/mar","30/mar","01/abr","22/abr","27/mai"],
+      datasets: [{
+        label: "Encaminhamentos APS",
+        data: [1,1,1,1,1,1,1],
+        borderColor: C_ORANGE, backgroundColor: "rgba(238,157,79,0.15)",
+        borderWidth: 2.5, tension: 0.3, fill: true,
+        pointBackgroundColor: C_STRONG, pointRadius: 5, pointHoverRadius: 7
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: "rgba(21,21,21,0.05)" } },
+        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: "rgba(21,21,21,0.05)" } }
+      }
+    }
+  });
+}
+
+/* ── Avaliação da Dor ── */
+function initDor() {
+  mkChart("chart-dor-intensidade", {
+    type: "bar",
+    data: {
+      labels: ["Forte","Muito Forte","Moderada","Máxima","Sem Dor","Suave"],
+      datasets: [
+        { label: "Feminino",  data: [20,12,9,6,3,1], backgroundColor: C_STRONG, borderRadius: 4 },
+        { label: "Masculino", data: [15,8,9,2,4,1],  backgroundColor: C_NAVY,   borderRadius: 4 }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: "top" } },
+      scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: "rgba(21,21,21,0.05)" } } }
+    }
+  });
+
+  mkChart("chart-dor-genero", {
+    type: "doughnut",
+    data: {
+      labels: ["Feminino","Masculino"],
+      datasets: [{ data: [51,39], backgroundColor: [C_STRONG, C_NAVY], borderWidth: 0, hoverOffset: 5 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "60%",
+      plugins: { legend: { position: "bottom" } }
+    }
+  });
+}
+
+/* ── Lógica de abas principais ── */
+const mainInit = {
+  "tab-visao-geral":   initVisaoGeral,
+  "tab-profissionais": initProfissionais,
+  "tab-pacientes":     null,
+  "tab-programas":     null
+};
+
+document.querySelectorAll("#bi-main-tabs .bi-tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const target = btn.dataset.target;
+    document.querySelectorAll("#bi-main-tabs .bi-tab").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".bi-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(target).classList.add("active");
+    if (mainInit[target]) mainInit[target]();
+  });
+});
+
+/* ── Lógica de sub-abas ── */
+document.querySelectorAll(".bi-sub-tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const group = btn.dataset.group;
+    const target = btn.dataset.target;
+    document.querySelectorAll(`.bi-sub-tab[data-group="${group}"]`).forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(`#pac-${group === "pac" ? "" : ""}${target.startsWith("pac") ? "#tab-pacientes .bi-sub-panel" : "#tab-programas .bi-sub-panel"}`);
+    // fechar sub-painéis do grupo
+    const parentPanel = btn.closest(".bi-panel");
+    parentPanel.querySelectorAll(".bi-sub-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(target).classList.add("active");
+    // inicializar gráficos lazy
+    const lazyInit = {
+      "pac-faltas":            initFaltas,
+      "pac-especiais":         initEspeciais,
+      "pac-encaminhamentos":   initEncaminhamentos,
+      "prog-oficinas":         initOficinas,
+      "prog-50mais":           initOficina50,
+      "prog-aps":              initAps,
+      "prog-dor":              initDor
+    };
+    if (lazyInit[target]) lazyInit[target]();
+  });
+});
+
+/* ── Inicializar gráficos da primeira aba visível ── */
+initVisaoGeral();
+</script>
+{% endblock %}

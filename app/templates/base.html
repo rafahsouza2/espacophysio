@@ -2,7 +2,11 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="theme-color" content="#f4f0eb" />
   <title>{% block title %}Espaço Physio{% endblock %} | Intranet</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,24 +24,12 @@
         </div>
 
         <nav class="menu-group">
-          <a class="menu-link {% if active_menu == 'dashboard' %}active{% endif %}" href="/dashboard">Visão geral</a>
-          {% if user.role in ['admin', 'coordenacao', 'financeiro'] %}
-          <a class="menu-link {% if active_menu == 'financeiro' %}active{% endif %}" href="/financeiro">Financeiro</a>
-          {% endif %}
-          {% if user.role in ['admin', 'coordenacao', 'recepcao', 'fisioterapeuta'] %}
-          <a class="menu-link {% if active_menu == 'agenda' %}active{% endif %}" href="/agenda">Agendamentos</a>
-          {% endif %}
-          {% if user.role in ['admin', 'coordenacao', 'recepcao', 'fisioterapeuta'] %}
-          <a class="menu-link {% if active_menu == 'pacientes' %}active{% endif %}" href="/pacientes">Pacientes e cadastros</a>
-          {% endif %}
-          {% if user.role in ['admin', 'coordenacao'] %}
-          <a class="menu-link {% if active_menu == 'equipe' %}active{% endif %}" href="/equipe">Equipe e acessos</a>
-          {% endif %}
-          {% if user.role in ['admin', 'coordenacao', 'financeiro'] %}
-          <a class="menu-link {% if active_menu == 'relatorios' %}active{% endif %}" href="/relatorios">Relatórios</a>
-          {% endif %}
-          <a class="menu-link {% if active_menu == 'comunicados' %}active{% endif %}" href="/comunicados">Comunicados</a>
-          <a class="menu-link {% if active_menu == 'suporte' %}active{% endif %}" href="/suporte">Suporte</a>
+          <a class="menu-link {% if active_menu == 'bi' %}active{% endif %}" href="/bi">
+            <span class="menu-icon">📊</span> B.I — Indicadores
+          </a>
+          <a class="menu-link {% if active_menu == 'comunicados' %}active{% endif %}" href="/comunicados">
+            <span class="menu-icon">📢</span> Comunicados
+          </a>
         </nav>
 
         <div class="sidebar-footer">

@@ -4,7 +4,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from supabase import Client
 
-from app.database import get_supabase
+from app.database import get_supabase, get_supabase_admin
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -16,6 +16,26 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     "recepcao": ["dashboard", "agenda", "pacientes", "comunicados"],
     "fisioterapeuta": ["dashboard", "agenda", "pacientes"],
 }
+
+
+def _fetch_profile(user_id: str, email: str) -> dict:
+    try:
+        admin = get_supabase_admin()
+        resp = admin.table("profiles").select("*").eq("id", user_id).limit(1).execute()
+        if resp and resp.data:
+            return resp.data[0]
+        # Perfil não existe — cria com role padrão
+        admin.table("profiles").upsert({
+            "id": user_id,
+            "full_name": email,
+            "email": email,
+            "role": "recepcao",
+        }).execute()
+        return {"role": "recepcao", "full_name": email, "active": True}
+    except Exception as e:
+        print("PROFILE FETCH ERROR:", repr(e))
+        # Retorna dados mínimos para não bloquear o acesso
+        return {"role": "recepcao", "full_name": email, "active": True}
 
 
 async def get_current_user(request: Request) -> dict:
@@ -30,14 +50,8 @@ async def get_current_user(request: Request) -> dict:
             raise HTTPException(status_code=401, detail="Token inválido")
 
         user = user_resp.user
-        profile_resp = (
-            supabase.table("profiles")
-            .select("*")
-            .eq("id", user.id)
-            .single()
-            .execute()
-        )
-        profile = profile_resp.data or {}
+        profile = _fetch_profile(user.id, user.email)
+
         return {
             "id": user.id,
             "email": user.email,
@@ -45,7 +59,10 @@ async def get_current_user(request: Request) -> dict:
             "role": profile.get("role", "recepcao"),
             "active": profile.get("active", True),
         }
-    except Exception:
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("AUTH ERROR:", repr(e))
         raise HTTPException(status_code=401, detail="Sessão expirada")
 
 
@@ -53,7 +70,10 @@ async def require_auth(request: Request) -> dict:
     try:
         return await get_current_user(request)
     except HTTPException:
-        return RedirectResponse(url="/login", status_code=302)
+        response = RedirectResponse(url="/login", status_code=302)
+        response.delete_cookie("access_token")
+        response.delete_cookie("refresh_token")
+        return response
 
 
 def require_role(allowed_roles: list[str]):
