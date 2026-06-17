@@ -12,8 +12,29 @@ from pathlib import Path
 
 import pandas as pd
 
-# ── Caminho do JSON processado ────────────────────────────────────────────────
+# ── Caminho do JSON local (fallback dev) ──────────────────────────────────────
 DATA_PATH = Path(__file__).parent.parent.parent / "data" / "bi_data.json"
+
+# ── Supabase cache (produção) ─────────────────────────────────────────────────
+def _save_supabase(data: dict) -> None:
+    try:
+        from app.database import get_supabase_admin
+        sb = get_supabase_admin()
+        sb.table("bi_cache").upsert({"id": 1, "data": data}).execute()
+    except Exception as e:
+        print("BI SUPABASE SAVE ERROR:", repr(e))
+
+
+def _load_supabase() -> dict | None:
+    try:
+        from app.database import get_supabase_admin
+        sb = get_supabase_admin()
+        res = sb.table("bi_cache").select("data").eq("id", 1).limit(1).execute()
+        if res.data:
+            return res.data[0]["data"]
+    except Exception as e:
+        print("BI SUPABASE LOAD ERROR:", repr(e))
+    return None
 
 # ── Mapeamento de status ───────────────────────────────────────────────────────
 def _classify_status(s: str) -> str:
@@ -369,18 +390,27 @@ def parse_xls(content: bytes) -> dict:
         "como_achou":         como_achou,
     }
 
-    # Salvar em disco
-    DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    DATA_PATH.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Salvar: Supabase primeiro, disco como fallback dev
+    _save_supabase(result)
+    try:
+        DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+        DATA_PATH.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
     return result
 
 
 def load_saved() -> dict | None:
-    """Carrega o último processamento salvo, ou None se não existir."""
+    """Carrega o último processamento: Supabase (prod) ou disco (dev)."""
+    # Tenta Supabase primeiro
+    data = _load_supabase()
+    if data:
+        return data
+    # Fallback: arquivo local
     if DATA_PATH.exists():
         try:
             return json.loads(DATA_PATH.read_text(encoding="utf-8"))
         except Exception:
-            return None
+            pass
     return None
