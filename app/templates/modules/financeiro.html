@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Financeiro{% endblock %}
+
+{% block content %}
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Módulo · Financeiro</div>
+    <h1>Contas, caixa e repasses</h1>
+    <p>Gestão de recebíveis, conciliação, pagamentos recorrentes e visão por período.</p>
+  </div>
+  <div class="topbar-actions">
+    <div class="pill">R$ {{ "%.2f"|format(receita_total) }} recebido</div>
+    {% if total_pendentes > 0 %}
+    <div class="pill pill-warning">{{ total_pendentes }} pendentes</div>
+    {% endif %}
+    <button class="button-primary" onclick="document.getElementById('modal-transacao').style.display='flex'">Nova transação</button>
+  </div>
+</header>
+
+<section class="stats-grid">
+  <article class="stats-card glass">
+    <div class="eyebrow">Receita confirmada</div>
+    <p class="metric">R$ {{ "%.2f"|format(receita_total) }}</p>
+    <p class="helper">Total de receitas pagas no período filtrado.</p>
+  </article>
+  <article class="stats-card glass">
+    <div class="eyebrow">Pendentes</div>
+    <p class="metric">{{ total_pendentes }}</p>
+    <p class="helper">Transações aguardando confirmação ou pagamento.</p>
+  </article>
+  <article class="stats-card glass">
+    <div class="eyebrow">Total de lançamentos</div>
+    <p class="metric">{{ transacoes|length }}</p>
+    <p class="helper">Lançamentos registrados no sistema.</p>
+  </article>
+</section>
+
+<article class="list-card glass">
+  <h3>Lançamentos recentes</h3>
+  {% if transacoes %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Descrição</th>
+        <th>Tipo</th>
+        <th>Valor</th>
+        <th>Status</th>
+        <th>Forma de pagamento</th>
+        <th>Data</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in transacoes %}
+      <tr>
+        <td>{{ t.descricao }}</td>
+        <td><span class="module-tag">{{ t.tipo|title }}</span></td>
+        <td class="{% if t.tipo == 'receita' %}valor-positivo{% else %}valor-negativo{% endif %}">
+          R$ {{ "%.2f"|format(t.valor) }}
+        </td>
+        <td><span class="status-badge status-{{ t.status }}">{{ t.status|title }}</span></td>
+        <td>{{ t.forma_pagamento or '—' }}</td>
+        <td>{{ t.created_at[:10] if t.created_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="helper" style="margin-top:16px;">Nenhum lançamento encontrado. Clique em "Nova transação" para começar.</p>
+  {% endif %}
+</article>
+
+<div id="modal-transacao" class="modal-overlay" style="display:none;">
+  <div class="modal-card glass">
+    <h3>Nova transação</h3>
+    <form method="POST" action="/financeiro/transacao" class="form-grid">
+      <div>
+        <label>Descrição</label>
+        <div class="input-shell"><input name="descricao" type="text" placeholder="Ex: Sessão de fisioterapia" required /></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div>
+          <label>Valor (R$)</label>
+          <div class="input-shell"><input name="valor" type="number" step="0.01" min="0" placeholder="0,00" required /></div>
+        </div>
+        <div>
+          <label>Tipo</label>
+          <div class="input-shell">
+            <select name="tipo" style="border:0;background:transparent;width:100%;font-size:1rem;">
+              <option value="receita">Receita</option>
+              <option value="despesa">Despesa</option>
+              <option value="repasse">Repasse</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div>
+          <label>Status</label>
+          <div class="input-shell">
+            <select name="status" style="border:0;background:transparent;width:100%;font-size:1rem;">
+              <option value="pendente">Pendente</option>
+              <option value="pago">Pago</option>
+              <option value="cancelado">Cancelado</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label>Forma de pagamento</label>
+          <div class="input-shell">
+            <select name="forma_pagamento" style="border:0;background:transparent;width:100%;font-size:1rem;">
+              <option value="">Selecione</option>
+              <option value="dinheiro">Dinheiro</option>
+              <option value="pix">PIX</option>
+              <option value="cartao_credito">Cartão de crédito</option>
+              <option value="cartao_debito">Cartão de débito</option>
+              <option value="convenio">Convênio</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="button-group">
+        <button class="button-primary" type="submit">Salvar</button>
+        <button class="button-secondary" type="button" onclick="document.getElementById('modal-transacao').style.display='none'">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

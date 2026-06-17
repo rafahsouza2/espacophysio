@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Pacientes{% endblock %}
+
+{% block content %}
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Módulo · Cadastros</div>
+    <h1>Pacientes e responsáveis</h1>
+    <p>Ficha completa com histórico, contatos, documentos e pendências administrativas.</p>
+  </div>
+  <div class="topbar-actions">
+    <form method="GET" action="/pacientes" style="display:flex;gap:10px;">
+      <div class="input-shell" style="height:44px;padding:0 14px;">
+        <input name="q" type="search" placeholder="Buscar paciente..." value="{{ busca }}" style="border:0;background:transparent;font-size:0.95rem;min-width:200px;" />
+      </div>
+      <button class="button-secondary" type="submit" style="height:44px;padding:0 20px;">Buscar</button>
+    </form>
+    <div class="pill">{{ pacientes|length }} pacientes</div>
+    <a class="button-primary" href="/pacientes/novo">Novo paciente</a>
+  </div>
+</header>
+
+{% if pacientes %}
+<article class="list-card glass">
+  <h3>Pacientes cadastrados</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Telefone</th>
+        <th>E-mail</th>
+        <th>Responsável</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in pacientes %}
+      <tr>
+        <td><strong>{{ p.nome }}</strong></td>
+        <td>{{ p.telefone or '—' }}</td>
+        <td>{{ p.email or '—' }}</td>
+        <td>{{ p.responsavel or '—' }}</td>
+        <td><a class="muted-link" href="/pacientes/{{ p.id }}">Ver ficha</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</article>
+{% else %}
+<article class="quick-card glass" style="padding:40px;text-align:center;">
+  <h3>Nenhum paciente encontrado</h3>
+  <p>{% if busca %}Nenhum resultado para "{{ busca }}".{% else %}Clique em "Novo paciente" para começar o cadastro.{% endif %}</p>
+</article>
+{% endif %}
+{% endblock %}

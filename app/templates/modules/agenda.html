@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Agenda{% endblock %}
+
+{% block content %}
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Módulo · Agenda</div>
+    <h1>Controle de agendamentos</h1>
+    <p>Calendário com confirmações, faltas, encaixes, bloqueios e ocupação por profissional.</p>
+  </div>
+  <div class="topbar-actions">
+    <form method="GET" action="/agenda" style="display:flex;gap:10px;align-items:center;">
+      <div class="input-shell" style="height:44px;padding:0 14px;">
+        <input name="data" type="date" value="{{ filtro_data }}" style="border:0;background:transparent;font-size:0.95rem;" onchange="this.form.submit()" />
+      </div>
+    </form>
+    <div class="pill">{{ agendamentos|length }} agendamentos</div>
+    <button class="button-primary" onclick="document.getElementById('modal-agenda').style.display='flex'">Novo agendamento</button>
+  </div>
+</header>
+
+{% if agendamentos %}
+<article class="list-card glass">
+  <h3>Agenda · {{ filtro_data }}</h3>
+  <div class="agenda-list">
+    {% for ag in agendamentos %}
+    <div class="list-item">
+      <div class="time-box">
+        <strong>{{ ag.data_hora[11:16] }}</strong>
+        <span class="status-{{ ag.status }}">{{ ag.status|title }}</span>
+      </div>
+      <div style="flex:1;">
+        <h4>{{ ag.tipo or 'Atendimento' }} · {{ ag.pacientes.nome if ag.pacientes else '—' }}</h4>
+        <p>
+          {{ ag.profiles.full_name if ag.profiles else '—' }}
+          {% if ag.sala %} · {{ ag.sala }}{% endif %}
+          {% if ag.observacoes %} · {{ ag.observacoes }}{% endif %}
+        </p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <form method="POST" action="/agenda/{{ ag.id }}/status">
+          <select name="status" onchange="this.form.submit()" style="padding:8px 12px;border-radius:12px;border:1px solid rgba(21,21,21,0.1);background:rgba(255,255,255,0.8);font-size:0.9rem;cursor:pointer;">
+            <option value="agendado" {% if ag.status == 'agendado' %}selected{% endif %}>Agendado</option>
+            <option value="confirmado" {% if ag.status == 'confirmado' %}selected{% endif %}>Confirmado</option>
+            <option value="realizado" {% if ag.status == 'realizado' %}selected{% endif %}>Realizado</option>
+            <option value="falta" {% if ag.status == 'falta' %}selected{% endif %}>Falta</option>
+            <option value="cancelado" {% if ag.status == 'cancelado' %}selected{% endif %}>Cancelado</option>
+          </select>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</article>
+{% else %}
+<article class="quick-card glass" style="padding:40px;text-align:center;">
+  <h3>Nenhum agendamento para {{ filtro_data }}</h3>
+  <p>Clique em "Novo agendamento" para adicionar um atendimento a esta data.</p>
+</article>
+{% endif %}
+
+<div id="modal-agenda" class="modal-overlay" style="display:none;">
+  <div class="modal-card glass">
+    <h3>Novo agendamento</h3>
+    <form method="POST" action="/agenda/novo" class="form-grid">
+      <div>
+        <label>Paciente</label>
+        <div class="input-shell">
+          <select name="paciente_id" style="border:0;background:transparent;width:100%;font-size:1rem;" required>
+            <option value="">Selecione o paciente</option>
+            {% for p in pacientes %}
+            <option value="{{ p.id }}">{{ p.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label>Profissional</label>
+        <div class="input-shell">
+          <select name="profissional_id" style="border:0;background:transparent;width:100%;font-size:1rem;" required>
+            <option value="">Selecione o profissional</option>
+            {% for prof in profissionais %}
+            <option value="{{ prof.id }}">{{ prof.full_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div>
+          <label>Data e horário</label>
+          <div class="input-shell"><input name="data_hora" type="datetime-local" value="{{ filtro_data }}T08:00" required style="border:0;background:transparent;font-size:1rem;width:100%;" /></div>
+        </div>
+        <div>
+          <label>Sala</label>
+          <div class="input-shell"><input name="sala" type="text" placeholder="Ex: Sala 01" /></div>
+        </div>
+      </div>
+      <div>
+        <label>Tipo de atendimento</label>
+        <div class="input-shell">
+          <select name="tipo" style="border:0;background:transparent;width:100%;font-size:1rem;">
+            <option value="Fisioterapia">Fisioterapia</option>
+            <option value="Pilates clínico">Pilates clínico</option>
+            <option value="Avaliação postural">Avaliação postural</option>
+            <option value="Reabilitação funcional">Reabilitação funcional</option>
+            <option value="RPG">RPG</option>
+            <option value="Outro">Outro</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label>Observações</label>
+        <div class="input-shell"><input name="observacoes" type="text" placeholder="Observações opcionais" /></div>
+      </div>
+      <div class="button-group">
+        <button class="button-primary" type="submit">Salvar</button>
+        <button class="button-secondary" type="button" onclick="document.getElementById('modal-agenda').style.display='none'">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

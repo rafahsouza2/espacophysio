@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Espaço Physio | Acesso</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <main class="page-shell">
+    <section class="login-layout">
+      <aside class="hero-panel">
+        <div>
+          <div class="badge">Intranet corporativa</div>
+          <h1>Gestão integrada com visual atual e humano.</h1>
+          <p>Ambiente seguro para a equipe do Espaço Physio — operação, agenda, financeiro e muito mais em um só lugar.</p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-item">
+            <strong>Financeiro centralizado</strong>
+            <span>Fluxo de caixa, recebimentos, repasses e indicadores em um só lugar.</span>
+          </article>
+          <article class="feature-item">
+            <strong>Agenda inteligente</strong>
+            <span>Visão rápida dos atendimentos do dia, status e encaixes prioritários.</span>
+          </article>
+          <article class="feature-item">
+            <strong>Operação conectada</strong>
+            <span>Cadastro, relatórios, comunicados e acessos por perfil de usuário.</span>
+          </article>
+        </div>
+      </aside>
+
+      <section class="login-card glass">
+        <header class="login-header">
+          <div class="brand-chip">
+            <img src="/static/assets/logo.png" alt="Logo Espaço Physio" />
+            <span>Ambiente seguro para equipe interna</span>
+          </div>
+        </header>
+
+        <img class="login-logo" src="/static/assets/logo.png" alt="Espaço Physio" />
+
+        <h2>Bem-vindo de volta</h2>
+        <p>Acesse sua conta para entrar na intranet, acompanhar módulos operacionais e navegar pelos painéis do dia.</p>
+
+        {% if error %}
+        <div class="alert-error">{{ error }}</div>
+        {% endif %}
+
+        <form class="form-grid" method="POST" action="/login">
+          <div>
+            <label for="email">E-mail corporativo</label>
+            <div class="input-shell">
+              <input id="email" name="email" type="email" placeholder="nome@espacophysio.com.br" required autocomplete="email" />
+            </div>
+          </div>
+
+          <div>
+            <label for="password">Senha</label>
+            <div class="input-shell">
+              <input id="password" name="password" type="password" placeholder="Digite sua senha" required autocomplete="current-password" />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label class="remember">
+              <input type="checkbox" name="remember" />
+              <span>Manter conectado</span>
+            </label>
+            <a class="muted-link" href="#">Esqueci minha senha</a>
+          </div>
+
+          <div class="button-group">
+            <button class="button-primary" type="submit">Entrar</button>
+            <a class="button-secondary" href="mailto:ti@espacophysio.com.br" style="display:flex;align-items:center;justify-content:center;">Solicitar acesso</a>
+          </div>
+        </form>
+
+        <div class="footer-note">
+          Acesso restrito à equipe interna. Em caso de dúvidas, contate o administrador.
+        </div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Dashboard principal</div>
+    <h1>Olá, {{ user.full_name.split()[0] }}</h1>
+    <p>Resumo do dia com foco em operação, agenda, indicadores e acessos rápidos.</p>
+  </div>
+  <div class="topbar-actions">
+    <div class="pill">{{ total_agendamentos }} atendimentos hoje</div>
+    {% if total_pendencias > 0 %}
+    <div class="pill pill-warning">{{ total_pendencias }} pendências financeiras</div>
+    {% endif %}
+    {% if user.role in ['admin', 'coordenacao', 'recepcao'] %}
+    <a class="button-primary" href="/agenda">Nova agenda</a>
+    {% endif %}
+  </div>
+</header>
+
+<section class="stats-grid">
+  <article class="stats-card glass">
+    <div class="eyebrow">Agenda hoje</div>
+    <p class="metric">{{ total_agendamentos }}</p>
+    <p class="helper">Atendimentos confirmados e agendados para o dia de hoje.</p>
+  </article>
+  <article class="stats-card glass">
+    <div class="eyebrow">Pendências</div>
+    <p class="metric">{{ total_pendencias }}</p>
+    <p class="helper">Transações financeiras aguardando confirmação ou pagamento.</p>
+  </article>
+  <article class="stats-card glass">
+    <div class="eyebrow">Seu perfil</div>
+    <p class="metric" style="font-size:1.3rem;">{{ user.role|title }}</p>
+    <p class="helper">Acesso configurado de acordo com seu perfil operacional.</p>
+  </article>
+  <article class="stats-card glass">
+    <div class="eyebrow">Sistema</div>
+    <p class="metric" style="font-size:1.3rem;">Online</p>
+    <p class="helper">Intranet operacional. Todos os módulos disponíveis.</p>
+  </article>
+</section>
+
+<section class="quick-grid">
+  {% if user.role in ['admin', 'coordenacao', 'recepcao', 'fisioterapeuta'] %}
+  <a class="quick-card glass quick-link" href="/agenda">
+    <h3>Agenda do dia</h3>
+    <p>Visualize e gerencie os atendimentos de hoje, status e confirmações.</p>
+  </a>
+  {% endif %}
+  {% if user.role in ['admin', 'coordenacao', 'recepcao', 'fisioterapeuta'] %}
+  <a class="quick-card glass quick-link" href="/pacientes">
+    <h3>Pacientes</h3>
+    <p>Acesse fichas, histórico de atendimentos e dados cadastrais.</p>
+  </a>
+  {% endif %}
+  {% if user.role in ['admin', 'coordenacao', 'financeiro'] %}
+  <a class="quick-card glass quick-link" href="/financeiro">
+    <h3>Financeiro</h3>
+    <p>Acompanhe receitas, despesas e pendências do período.</p>
+  </a>
+  {% endif %}
+  <a class="quick-card glass quick-link" href="/comunicados">
+    <h3>Comunicados</h3>
+    <p>Avisos internos, documentos e atualizações de processos.</p>
+  </a>
+  <a class="quick-card glass quick-link" href="/suporte">
+    <h3>Suporte</h3>
+    <p>Abra chamados, registre ocorrências e acompanhe demandas internas.</p>
+  </a>
+</section>
+
+{% if agendamentos_hoje %}
+<section>
+  <div class="eyebrow">Agenda de hoje</div>
+  <article class="list-card glass">
+    <h3>Próximos atendimentos</h3>
+    <p>Agenda do dia em tempo real com status e profissional responsável.</p>
+    <div class="agenda-list">
+      {% for ag in agendamentos_hoje %}
+      <div class="list-item">
+        <div class="time-box">
+          <strong>{{ ag.data_hora[11:16] }}</strong>
+          <span class="status-{{ ag.status }}">{{ ag.status|title }}</span>
+        </div>
+        <div>
+          <h4>{{ ag.tipo or 'Atendimento' }} · {{ ag.pacientes.nome if ag.pacientes else '—' }}</h4>
+          <p>
+            Profissional: {{ ag.profiles.full_name if ag.profiles else '—' }}
+            {% if ag.sala %} · {{ ag.sala }}{% endif %}
+            {% if ag.observacoes %} · {{ ag.observacoes }}{% endif %}
+          </p>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+{% endif %}
+{% endblock %}

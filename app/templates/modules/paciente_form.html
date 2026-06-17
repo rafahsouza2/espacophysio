@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{% if paciente %}Editar Paciente{% else %}Novo Paciente{% endif %}{% endblock %}
+
+{% block content %}
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Módulo · Cadastros</div>
+    <h1>{% if paciente %}Editar paciente{% else %}Novo paciente{% endif %}</h1>
+    <p>Preencha os dados do paciente. Campos obrigatórios estão marcados com *.</p>
+  </div>
+  <div class="topbar-actions">
+    <a class="button-secondary" href="/pacientes">Voltar</a>
+  </div>
+</header>
+
+<article class="list-card glass">
+  <form method="POST" action="/pacientes/novo" class="form-grid">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div>
+        <label>Nome completo *</label>
+        <div class="input-shell"><input name="nome" type="text" placeholder="Nome do paciente" value="{{ paciente.nome if paciente else '' }}" required /></div>
+      </div>
+      <div>
+        <label>CPF</label>
+        <div class="input-shell"><input name="cpf" type="text" placeholder="000.000.000-00" value="{{ paciente.cpf if paciente else '' }}" /></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div>
+        <label>Data de nascimento</label>
+        <div class="input-shell"><input name="data_nascimento" type="date" value="{{ paciente.data_nascimento if paciente else '' }}" style="border:0;background:transparent;font-size:1rem;width:100%;" /></div>
+      </div>
+      <div>
+        <label>Telefone</label>
+        <div class="input-shell"><input name="telefone" type="tel" placeholder="(00) 00000-0000" value="{{ paciente.telefone if paciente else '' }}" /></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div>
+        <label>E-mail</label>
+        <div class="input-shell"><input name="email" type="email" placeholder="paciente@email.com" value="{{ paciente.email if paciente else '' }}" /></div>
+      </div>
+      <div>
+        <label>Responsável</label>
+        <div class="input-shell"><input name="responsavel" type="text" placeholder="Nome do responsável (se menor)" value="{{ paciente.responsavel if paciente else '' }}" /></div>
+      </div>
+    </div>
+    <div>
+      <label>Observações</label>
+      <div class="input-shell" style="height:auto;padding:14px 16px;">
+        <textarea name="observacoes" rows="3" placeholder="Anotações clínicas, alergias, condições especiais..." style="border:0;background:transparent;width:100%;font-size:1rem;font-family:inherit;resize:vertical;">{{ paciente.observacoes if paciente else '' }}</textarea>
+      </div>
+    </div>
+    <div class="button-group">
+      <button class="button-primary" type="submit">Salvar paciente</button>
+      <a class="button-secondary" href="/pacientes" style="display:flex;align-items:center;justify-content:center;">Cancelar</a>
+    </div>
+  </form>
+</article>
+{% endblock %}

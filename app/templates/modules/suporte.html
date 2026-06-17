@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Suporte{% endblock %}
+
+{% block content %}
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Módulo · Suporte</div>
+    <h1>Chamados e solicitações</h1>
+    <p>Registro de ocorrências, demandas internas e acompanhamento de SLA operacional.</p>
+  </div>
+  <div class="topbar-actions">
+    <div class="pill">{{ chamados|length }} chamados</div>
+    <button class="button-primary" onclick="document.getElementById('modal-chamado').style.display='flex'">Abrir chamado</button>
+  </div>
+</header>
+
+{% if chamados %}
+<article class="list-card glass">
+  <h3>Chamados registrados</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Título</th>
+        <th>Prioridade</th>
+        <th>Status</th>
+        <th>Aberto por</th>
+        <th>Data</th>
+        {% if user.role in ['admin', 'coordenacao'] %}<th>Ações</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in chamados %}
+      <tr>
+        <td>
+          <strong>{{ c.titulo }}</strong>
+          {% if c.descricao %}<br><small style="color:var(--muted);">{{ c.descricao[:80] }}{% if c.descricao|length > 80 %}…{% endif %}</small>{% endif %}
+        </td>
+        <td><span class="module-tag prioridade-{{ c.prioridade }}">{{ c.prioridade|title }}</span></td>
+        <td><span class="status-badge status-{{ c.status }}">{{ c.status|title }}</span></td>
+        <td>{{ c.profiles.full_name if c.profiles else '—' }}</td>
+        <td>{{ c.created_at[:10] if c.created_at else '—' }}</td>
+        {% if user.role in ['admin', 'coordenacao'] %}
+        <td>
+          <form method="POST" action="/suporte/{{ c.id }}/status" style="display:flex;gap:8px;">
+            <select name="status" style="padding:6px 10px;border-radius:10px;border:1px solid rgba(21,21,21,0.1);background:rgba(255,255,255,0.8);font-size:0.85rem;">
+              <option value="aberto" {% if c.status == 'aberto' %}selected{% endif %}>Aberto</option>
+              <option value="em_andamento" {% if c.status == 'em_andamento' %}selected{% endif %}>Em andamento</option>
+              <option value="resolvido" {% if c.status == 'resolvido' %}selected{% endif %}>Resolvido</option>
+              <option value="fechado" {% if c.status == 'fechado' %}selected{% endif %}>Fechado</option>
+            </select>
+            <button class="button-secondary" type="submit" style="padding:6px 14px;height:auto;font-size:0.85rem;">OK</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</article>
+{% else %}
+<article class="quick-card glass" style="padding:40px;text-align:center;">
+  <h3>Nenhum chamado aberto</h3>
+  <p>Tudo certo! Clique em "Abrir chamado" para registrar uma ocorrência ou solicitação.</p>
+</article>
+{% endif %}
+
+<div id="modal-chamado" class="modal-overlay" style="display:none;">
+  <div class="modal-card glass">
+    <h3>Abrir chamado</h3>
+    <form method="POST" action="/suporte/novo" class="form-grid">
+      <div>
+        <label>Título</label>
+        <div class="input-shell"><input name="titulo" type="text" placeholder="Descreva brevemente o problema" required /></div>
+      </div>
+      <div>
+        <label>Descrição detalhada</label>
+        <div class="input-shell" style="height:auto;padding:14px 16px;">
+          <textarea name="descricao" rows="3" placeholder="Explique o problema, o que aconteceu e o impacto..." style="border:0;background:transparent;width:100%;font-size:1rem;font-family:inherit;resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div>
+        <label>Prioridade</label>
+        <div class="input-shell">
+          <select name="prioridade" style="border:0;background:transparent;width:100%;font-size:1rem;">
+            <option value="baixa">Baixa — pode aguardar</option>
+            <option value="media" selected>Média — resolver hoje</option>
+            <option value="alta">Alta — urgente</option>
+            <option value="critica">Crítica — parada total</option>
+          </select>
+        </div>
+      </div>
+      <div class="button-group">
+        <button class="button-primary" type="submit">Abrir chamado</button>
+        <button class="button-secondary" type="button" onclick="document.getElementById('modal-chamado').style.display='none'">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

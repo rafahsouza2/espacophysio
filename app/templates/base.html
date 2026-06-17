@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Espaço Physio{% endblock %} | Intranet</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <main class="page-shell">
+    <section class="dashboard-layout">
+      <aside class="sidebar glass">
+        <div>
+          <img class="logo" src="/static/assets/logo.png" alt="Logo Espaço Physio" />
+          <small>Intranet corporativa — ambiente seguro para equipe interna.</small>
+        </div>
+
+        <nav class="menu-group">
+          <a class="menu-link {% if active_menu == 'dashboard' %}active{% endif %}" href="/dashboard">Visão geral</a>
+          {% if user.role in ['admin', 'coordenacao', 'financeiro'] %}
+          <a class="menu-link {% if active_menu == 'financeiro' %}active{% endif %}" href="/financeiro">Financeiro</a>
+          {% endif %}
+          {% if user.role in ['admin', 'coordenacao', 'recepcao', 'fisioterapeuta'] %}
+          <a class="menu-link {% if active_menu == 'agenda' %}active{% endif %}" href="/agenda">Agendamentos</a>
+          {% endif %}
+          {% if user.role in ['admin', 'coordenacao', 'recepcao', 'fisioterapeuta'] %}
+          <a class="menu-link {% if active_menu == 'pacientes' %}active{% endif %}" href="/pacientes">Pacientes e cadastros</a>
+          {% endif %}
+          {% if user.role in ['admin', 'coordenacao'] %}
+          <a class="menu-link {% if active_menu == 'equipe' %}active{% endif %}" href="/equipe">Equipe e acessos</a>
+          {% endif %}
+          {% if user.role in ['admin', 'coordenacao', 'financeiro'] %}
+          <a class="menu-link {% if active_menu == 'relatorios' %}active{% endif %}" href="/relatorios">Relatórios</a>
+          {% endif %}
+          <a class="menu-link {% if active_menu == 'comunicados' %}active{% endif %}" href="/comunicados">Comunicados</a>
+          <a class="menu-link {% if active_menu == 'suporte' %}active{% endif %}" href="/suporte">Suporte</a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="user-chip">
+            <div class="user-avatar">{{ user.full_name[0]|upper }}</div>
+            <div>
+              <strong>{{ user.full_name }}</strong>
+              <span class="role-tag">{{ user.role }}</span>
+            </div>
+          </div>
+          <a class="muted-link logout-link" href="/logout">Sair</a>
+        </div>
+      </aside>
+
+      <section class="content-area">
+        {% block content %}{% endblock %}
+      </section>
+    </section>
+  </main>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

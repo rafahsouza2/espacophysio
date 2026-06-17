@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Comunicados{% endblock %}
+
+{% block content %}
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Módulo · Comunicados</div>
+    <h1>Mural interno</h1>
+    <p>Avisos para a equipe, lembretes, documentos internos e atualizações de processos.</p>
+  </div>
+  <div class="topbar-actions">
+    <div class="pill">{{ comunicados|length }} publicações</div>
+    {% if pode_criar %}
+    <button class="button-primary" onclick="document.getElementById('modal-comunicado').style.display='flex'">Novo comunicado</button>
+    {% endif %}
+  </div>
+</header>
+
+{% if comunicados %}
+<section style="display:grid;gap:16px;">
+  {% for c in comunicados %}
+  <article class="list-card glass">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
+      <div>
+        <div class="eyebrow">{{ c.publico_alvo|title }}</div>
+        <h3 style="margin:8px 0 10px;">{{ c.titulo }}</h3>
+        <p>{{ c.conteudo }}</p>
+        <p style="margin-top:12px;font-size:0.85rem;color:var(--muted);">
+          Por {{ c.profiles.full_name if c.profiles else 'Sistema' }} · {{ c.created_at[:10] if c.created_at else '' }}
+        </p>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+{% else %}
+<article class="quick-card glass" style="padding:40px;text-align:center;">
+  <h3>Nenhum comunicado publicado</h3>
+  <p>{% if pode_criar %}Clique em "Novo comunicado" para publicar um aviso para a equipe.{% else %}Nenhum comunicado disponível no momento.{% endif %}</p>
+</article>
+{% endif %}
+
+{% if pode_criar %}
+<div id="modal-comunicado" class="modal-overlay" style="display:none;">
+  <div class="modal-card glass">
+    <h3>Novo comunicado</h3>
+    <form method="POST" action="/comunicados/novo" class="form-grid">
+      <div>
+        <label>Título</label>
+        <div class="input-shell"><input name="titulo" type="text" placeholder="Assunto do comunicado" required /></div>
+      </div>
+      <div>
+        <label>Conteúdo</label>
+        <div class="input-shell" style="height:auto;padding:14px 16px;">
+          <textarea name="conteudo" rows="4" placeholder="Escreva o comunicado..." required style="border:0;background:transparent;width:100%;font-size:1rem;font-family:inherit;resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div>
+        <label>Público-alvo</label>
+        <div class="input-shell">
+          <select name="publico_alvo" style="border:0;background:transparent;width:100%;font-size:1rem;">
+            <option value="todos">Toda a equipe</option>
+            <option value="recepcao">Recepção</option>
+            <option value="financeiro">Financeiro</option>
+            <option value="fisioterapeutas">Fisioterapeutas</option>
+            <option value="coordenacao">Coordenação</option>
+          </select>
+        </div>
+      </div>
+      <div class="button-group">
+        <button class="button-primary" type="submit">Publicar</button>
+        <button class="button-secondary" type="button" onclick="document.getElementById('modal-comunicado').style.display='none'">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

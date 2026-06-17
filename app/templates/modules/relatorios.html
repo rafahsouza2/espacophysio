@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Relatórios{% endblock %}
+
+{% block content %}
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Módulo · Relatórios</div>
+    <h1>Operacional e gestão</h1>
+    <p>Indicadores do mês de {{ mes_referencia }} — faturamento, ocupação e pendências.</p>
+  </div>
+</header>
+
+<section class="stats-grid">
+  <article class="stats-card glass">
+    <div class="eyebrow">Receita do mês</div>
+    <p class="metric">R$ {{ "%.2f"|format(receita_mes) }}</p>
+    <p class="helper">Total de receitas pagas no mês de {{ mes_referencia }}.</p>
+  </article>
+  <article class="stats-card glass">
+    <div class="eyebrow">Despesas do mês</div>
+    <p class="metric">R$ {{ "%.2f"|format(despesa_mes) }}</p>
+    <p class="helper">Total de despesas registradas no período.</p>
+  </article>
+  <article class="stats-card glass">
+    <div class="eyebrow">A receber</div>
+    <p class="metric">R$ {{ "%.2f"|format(pendentes_mes) }}</p>
+    <p class="helper">Valores pendentes de confirmação ou pagamento.</p>
+  </article>
+  <article class="stats-card glass">
+    <div class="eyebrow">Agendamentos</div>
+    <p class="metric">{{ total_agendamentos_mes }}</p>
+    <p class="helper">Total de atendimentos agendados no mês.</p>
+  </article>
+</section>
+
+<section class="bottom-grid">
+  <article class="dashboard-card glass">
+    <div class="eyebrow">Resumo financeiro</div>
+    <h3>Saúde financeira do mês</h3>
+    <p>Indicadores consolidados de {{ mes_referencia }}.</p>
+    <div class="progress-wrap">
+      {% set total_mov = receita_mes + despesa_mes %}
+      {% if total_mov > 0 %}
+      <div class="progress-row">
+        <header>
+          <span>Receita vs. despesa</span>
+          <span>{{ "%.0f"|format(receita_mes / total_mov * 100) }}% receita</span>
+        </header>
+        <div class="progress-track">
+          <div class="progress-bar" style="width:{{ (receita_mes / total_mov * 100)|int }}%"></div>
+        </div>
+      </div>
+      {% endif %}
+      {% if receita_mes + pendentes_mes > 0 %}
+      <div class="progress-row">
+        <header>
+          <span>Recebimentos realizados</span>
+          <span>{{ "%.0f"|format(receita_mes / (receita_mes + pendentes_mes) * 100) if (receita_mes + pendentes_mes) > 0 else 0 }}%</span>
+        </header>
+        <div class="progress-track">
+          <div class="progress-bar" style="width:{{ (receita_mes / (receita_mes + pendentes_mes) * 100)|int if (receita_mes + pendentes_mes) > 0 else 0 }}%"></div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </article>
+
+  <article class="quick-card glass">
+    <h3>Saldo estimado</h3>
+    <p class="metric" style="font-size:2rem;margin:16px 0 8px;">R$ {{ "%.2f"|format(receita_mes - despesa_mes) }}</p>
+    <p>Diferença entre receitas pagas e despesas registradas no mês.</p>
+  </article>
+</section>
+{% endblock %}

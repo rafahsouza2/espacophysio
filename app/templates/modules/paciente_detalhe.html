@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ paciente.nome }}{% endblock %}
+
+{% block content %}
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Módulo · Cadastros</div>
+    <h1>{{ paciente.nome }}</h1>
+    <p>Ficha completa do paciente com histórico de atendimentos e dados administrativos.</p>
+  </div>
+  <div class="topbar-actions">
+    <a class="button-secondary" href="/pacientes">Voltar</a>
+    <a class="button-primary" href="/agenda">Agendar consulta</a>
+  </div>
+</header>
+
+<section class="quick-grid">
+  <article class="quick-card glass">
+    <h3>Contato</h3>
+    <p>
+      {% if paciente.telefone %}<strong>Tel:</strong> {{ paciente.telefone }}<br>{% endif %}
+      {% if paciente.email %}<strong>Email:</strong> {{ paciente.email }}<br>{% endif %}
+      {% if paciente.responsavel %}<strong>Responsável:</strong> {{ paciente.responsavel }}{% endif %}
+    </p>
+  </article>
+  <article class="quick-card glass">
+    <h3>Dados cadastrais</h3>
+    <p>
+      {% if paciente.cpf %}<strong>CPF:</strong> {{ paciente.cpf }}<br>{% endif %}
+      {% if paciente.data_nascimento %}<strong>Nascimento:</strong> {{ paciente.data_nascimento }}<br>{% endif %}
+      <strong>Cadastrado em:</strong> {{ paciente.created_at[:10] if paciente.created_at else '—' }}
+    </p>
+  </article>
+  {% if paciente.observacoes %}
+  <article class="quick-card glass">
+    <h3>Observações</h3>
+    <p>{{ paciente.observacoes }}</p>
+  </article>
+  {% endif %}
+</section>
+
+<article class="list-card glass">
+  <h3>Histórico de atendimentos</h3>
+  {% if historico %}
+  <div class="agenda-list" style="margin-top:18px;">
+    {% for ag in historico %}
+    <div class="list-item">
+      <div class="time-box">
+        <strong>{{ ag.data_hora[11:16] }}</strong>
+        <span class="status-{{ ag.status }}">{{ ag.status|title }}</span>
+      </div>
+      <div>
+        <h4>{{ ag.tipo or 'Atendimento' }} · {{ ag.data_hora[:10] }}</h4>
+        <p>
+          Profissional: {{ ag.profiles.full_name if ag.profiles else '—' }}
+          {% if ag.sala %} · {{ ag.sala }}{% endif %}
+          {% if ag.observacoes %} · {{ ag.observacoes }}{% endif %}
+        </p>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="helper" style="margin-top:16px;">Nenhum atendimento registrado para este paciente ainda.</p>
+  {% endif %}
+</article>
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Equipe{% endblock %}
+
+{% block content %}
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Módulo · Equipe</div>
+    <h1>Perfis e permissões</h1>
+    <p>Controle de usuários, acessos, funções operacionais e histórico de atividades.</p>
+  </div>
+  <div class="topbar-actions">
+    <div class="pill">{{ membros|length }} membros</div>
+    {% if user.role == 'admin' %}
+    <button class="button-primary" onclick="document.getElementById('modal-convidar').style.display='flex'">Convidar usuário</button>
+    {% endif %}
+  </div>
+</header>
+
+<article class="list-card glass">
+  <h3>Membros da equipe</h3>
+  {% if membros %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>E-mail</th>
+        <th>Perfil / Função</th>
+        <th>Status</th>
+        {% if user.role == 'admin' %}<th>Ações</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in membros %}
+      <tr>
+        <td>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div class="user-avatar" style="width:36px;height:36px;font-size:0.9rem;">{{ m.full_name[0]|upper }}</div>
+            <strong>{{ m.full_name }}</strong>
+          </div>
+        </td>
+        <td>{{ m.email or '—' }}</td>
+        <td><span class="module-tag">{{ m.role|title }}</span></td>
+        <td>
+          {% if m.active %}
+          <span class="status-badge status-confirmado">Ativo</span>
+          {% else %}
+          <span class="status-badge status-cancelado">Inativo</span>
+          {% endif %}
+        </td>
+        {% if user.role == 'admin' %}
+        <td>
+          <form method="POST" action="/equipe/{{ m.id }}/role" style="display:flex;gap:8px;align-items:center;">
+            <select name="role" style="padding:6px 10px;border-radius:10px;border:1px solid rgba(21,21,21,0.1);background:rgba(255,255,255,0.8);font-size:0.85rem;">
+              <option value="admin" {% if m.role == 'admin' %}selected{% endif %}>Admin</option>
+              <option value="coordenacao" {% if m.role == 'coordenacao' %}selected{% endif %}>Coordenação</option>
+              <option value="financeiro" {% if m.role == 'financeiro' %}selected{% endif %}>Financeiro</option>
+              <option value="recepcao" {% if m.role == 'recepcao' %}selected{% endif %}>Recepção</option>
+              <option value="fisioterapeuta" {% if m.role == 'fisioterapeuta' %}selected{% endif %}>Fisioterapeuta</option>
+            </select>
+            <button class="button-secondary" style="padding:6px 14px;height:auto;font-size:0.85rem;" type="submit">Salvar</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="helper" style="margin-top:16px;">Nenhum membro cadastrado ainda.</p>
+  {% endif %}
+</article>
+
+{% if user.role == 'admin' %}
+<div id="modal-convidar" class="modal-overlay" style="display:none;">
+  <div class="modal-card glass">
+    <h3>Convidar novo usuário</h3>
+    <p style="color:var(--muted);margin:0 0 20px;">Um e-mail de convite será enviado com as instruções de acesso.</p>
+    <form method="POST" action="/equipe/convidar" class="form-grid">
+      <div>
+        <label>Nome completo</label>
+        <div class="input-shell"><input name="full_name" type="text" placeholder="Nome do colaborador" required /></div>
+      </div>
+      <div>
+        <label>E-mail corporativo</label>
+        <div class="input-shell"><input name="email" type="email" placeholder="nome@espacophysio.com.br" required /></div>
+      </div>
+      <div>
+        <label>Perfil de acesso</label>
+        <div class="input-shell">
+          <select name="role" style="border:0;background:transparent;width:100%;font-size:1rem;">
+            <option value="recepcao">Recepção</option>
+            <option value="fisioterapeuta">Fisioterapeuta</option>
+            <option value="financeiro">Financeiro</option>
+            <option value="coordenacao">Coordenação</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </div>
+      <div class="button-group">
+        <button class="button-primary" type="submit">Enviar convite</button>
+        <button class="button-secondary" type="button" onclick="document.getElementById('modal-convidar').style.display='none'">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
