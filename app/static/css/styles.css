@@ -922,3 +922,212 @@ a#menu-bi-link { display: flex; align-items: center; }
   .bi-filters { flex-direction: column; }
   .filter-group { width: 100%; }
 }
+
+
+/* ════════════════════════════════════════════════════════
+   BI REDESIGN — Dashboard WandaHorta-style
+════════════════════════════════════════════════════════ */
+
+/* ── Period header bar ── */
+.bi-period-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; padding: 16px 22px; border-radius: 18px;
+  flex-wrap: wrap;
+}
+.bi-period-info { display: flex; flex-direction: column; gap: 2px; }
+.eyebrow { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.bi-period-label { font-size: 1.25rem; font-weight: 800; color: var(--text); }
+.bi-period-actions { display: flex; align-items: center; gap: 10px; }
+.btn-sm-outline {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: 12px; border: 1.5px solid var(--primary-strong);
+  font-size: 0.84rem; font-weight: 700; color: var(--primary-strong);
+  cursor: pointer; text-decoration: none; transition: background 0.18s;
+  white-space: nowrap;
+}
+.btn-sm-outline:hover { background: rgba(229,98,46,0.08); }
+
+/* ── Hero grid (7 cards) ── */
+.hero-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 12px;
+}
+.hero-card {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 18px 16px; border-radius: 18px;
+  background: var(--surface); border: 1px solid rgba(21,21,21,0.07);
+  box-shadow: 0 2px 12px rgba(7,7,7,0.06);
+  transition: transform 0.18s, box-shadow 0.18s;
+  position: relative; overflow: hidden;
+}
+.hero-card:hover { transform: translateY(-2px); box-shadow: 0 6px 22px rgba(7,7,7,0.10); }
+.hero-card.hero-green { background: rgba(61,107,26,0.10); border-color: rgba(61,107,26,0.28); }
+.hero-card.hero-amber { background: rgba(196,123,0,0.09); border-color: rgba(196,123,0,0.28); }
+.hero-card.hero-red   { background: rgba(184,48,48,0.08);  border-color: rgba(184,48,48,0.24); }
+.hero-label {
+  font-size: 0.68rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--muted); white-space: nowrap;
+}
+.hero-value {
+  font-size: 1.22rem; font-weight: 800; color: var(--text);
+  line-height: 1.2; word-break: break-all;
+}
+.hero-sub { font-size: 0.75rem; color: var(--muted); }
+.hero-badge {
+  display: inline-block; margin-top: 4px; padding: 3px 9px;
+  border-radius: 999px; font-size: 0.7rem; font-weight: 800;
+  white-space: nowrap; width: fit-content;
+}
+.badge-up     { background: rgba(61,107,26,0.16);  color: #2a5010; }
+.badge-amb    { background: rgba(196,123,0,0.16);  color: #7a4d00; }
+.badge-down   { background: rgba(184,48,48,0.14);  color: #7a1a1a; }
+.badge-neutral{ background: rgba(21,21,21,0.08);   color: var(--muted); }
+
+/* ── Charts layout fix for equal-col ── */
+.two-col-charts { align-items: start; }
+
+/* ── Dashboard card (overrides base) ── */
+.dashboard-card { display: flex; flex-direction: column; gap: 10px; }
+.dashboard-card h3 { margin: 0; font-size: 0.95rem; font-weight: 800; color: var(--text); }
+.chart-wrap-lg { height: 300px; position: relative; }
+
+/* ── Mix de Produção ── */
+.mix-list { display: flex; flex-direction: column; gap: 14px; }
+.mix-item { display: flex; flex-direction: column; gap: 6px; }
+.mix-header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.88rem; font-weight: 700; }
+.mix-val { font-size: 0.82rem; }
+
+/* ── Progress bars ── */
+.pbar-wrap { width: 100%; height: 7px; background: rgba(21,21,21,0.08); border-radius: 999px; overflow: hidden; }
+.pbar-fill { height: 100%; border-radius: 999px; transition: width 0.6s ease; }
+.pbar-green { background: #3d6b1a; }
+.pbar-blue  { background: #185FA5; }
+.pbar-amber { background: #c47b00; }
+.pbar-red   { background: #b83030; }
+
+/* ── Alcance da meta ── */
+.meta-big { font-size: 3.5rem; font-weight: 900; line-height: 1; padding: 12px 0 4px; }
+.meta-big.meta-green { color: #3d6b1a; }
+.meta-big.meta-amber { color: #c47b00; }
+.meta-big.meta-red   { color: #b83030; }
+.meta-sub { font-size: 0.82rem; color: var(--muted); margin: 0; }
+
+/* ── Status com progress bars ── */
+.status-bar-list { display: flex; flex-direction: column; gap: 10px; }
+.sbar-item { display: flex; flex-direction: column; gap: 5px; }
+.sbar-header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.84rem; font-weight: 600; }
+.sbar-val { font-weight: 800; white-space: nowrap; }
+.sbar-pct { font-weight: 500; color: var(--muted); font-size: 0.8rem; }
+.sbar-total { display: flex; justify-content: space-between; align-items: center; padding-top: 6px; border-top: 1px solid var(--line); font-size: 0.82rem; color: var(--muted); }
+
+/* ── Status list simples (Dashboard) ── */
+.status-list { display: flex; flex-direction: column; gap: 7px; }
+.status-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(21,21,21,0.04); font-size: 0.88rem; }
+.status-val { font-weight: 800; }
+
+/* ── Mini cards (Diário) ── */
+.mini-cards { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+.mini-card {
+  padding: 16px 18px; border-radius: 16px;
+  background: var(--surface); border: 1px solid rgba(21,21,21,0.07);
+}
+.mini-card.mini-green { background: rgba(61,107,26,0.09); border-color: rgba(61,107,26,0.25); }
+.mini-card.mini-red   { background: rgba(184,48,48,0.08); border-color: rgba(184,48,48,0.22); }
+.mini-card.mini-amber { background: rgba(196,123,0,0.09); border-color: rgba(196,123,0,0.24); }
+.mini-label { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 6px; }
+.mini-val   { font-size: 1.6rem; font-weight: 800; margin: 0; }
+
+/* ── Tabela BI — variante header verde ── */
+.bi-table-green thead th {
+  background: #3d6b1a; color: #fff;
+  border-bottom: 0; font-size: 0.71rem; letter-spacing: 0.04em;
+}
+.bi-table-green tbody tr:nth-child(even) td { background: rgba(61,107,26,0.035); }
+.bi-table .muted { color: var(--muted); }
+
+/* ── Cross matrix table ── */
+.bi-table-cross thead th { background: #3d6b1a; color: #fff; font-size: 0.71rem; border-bottom: 0; }
+.bi-table-cross tbody tr:nth-child(even) td { background: rgba(61,107,26,0.035); }
+.cross-final { color: #3d6b1a !important; font-weight: 800; }
+.cross-total { font-weight: 800; background: rgba(61,107,26,0.06) !important; }
+
+/* ── Table status badges (inline) ── */
+.status-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 800; }
+.badge-up   .status-badge, .status-badge.badge-up   { background: rgba(61,107,26,0.16);  color: #2a5010; }
+.badge-amb  .status-badge, .status-badge.badge-amb  { background: rgba(196,123,0,0.16);  color: #7a4d00; }
+.badge-down .status-badge, .status-badge.badge-down { background: rgba(184,48,48,0.14);  color: #7a1a1a; }
+.status-badge.badge-neutral { background: rgba(21,21,21,0.07); color: var(--muted); }
+
+/* Table cell coloring helpers */
+.bi-table td.ok   { color: #3d6b1a; font-weight: 700; }
+.bi-table td.mid  { color: #c47b00; font-weight: 700; }
+.bi-table td.warn { color: #b83030; font-weight: 700; }
+.bi-table td.muted{ color: var(--muted); }
+
+/* ── Empty states ── */
+.bi-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; text-align: center; padding: 80px 24px;
+}
+.bi-empty-icon { font-size: 3.5rem; }
+.bi-empty h2 { margin: 0; font-size: 1.5rem; }
+.bi-empty p  { margin: 0; color: var(--muted); max-width: 380px; line-height: 1.6; }
+.bi-empty-sm { padding: 40px 24px; text-align: center; color: var(--muted); font-size: 0.9rem; }
+
+/* ── Report item progress bar ── */
+.report-item .pbar-wrap { height: 5px; }
+
+/* ── Parâmetros ── */
+.param-form { display: flex; flex-direction: column; gap: 22px; }
+.param-row  { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.param-field { display: flex; flex-direction: column; gap: 6px; }
+.param-label { font-size: 0.76rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.param-input {
+  padding: 11px 14px; border-radius: 12px; border: 1.5px solid var(--line);
+  font-size: 1rem; font-weight: 700; font-family: inherit;
+  background: var(--surface-strong); color: var(--text);
+  transition: border-color 0.18s;
+  -moz-appearance: textfield;
+}
+.param-input::-webkit-outer-spin-button,
+.param-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.param-input:focus { outline: none; border-color: var(--primary-strong); }
+.param-hint { font-size: 0.75rem; color: var(--muted); line-height: 1.4; }
+.param-preview {
+  display: flex; gap: 24px; flex-wrap: wrap;
+  padding: 16px 20px; border-radius: 14px;
+  background: rgba(61,107,26,0.07); border: 1px solid rgba(61,107,26,0.2);
+}
+.param-prev-item { display: flex; flex-direction: column; gap: 3px; }
+.param-prev-label { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #3d6b1a; }
+.param-prev-val   { font-size: 1.15rem; font-weight: 800; color: #2a5010; }
+.param-actions  { display: flex; align-items: center; gap: 16px; }
+.param-feedback { font-size: 0.88rem; font-weight: 700; }
+@media (max-width: 720px) {
+  .param-row { grid-template-columns: 1fr; }
+}
+
+/* ── Responsive: hero grid ── */
+@media (max-width: 1400px) {
+  .hero-grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
+}
+@media (max-width: 1180px) {
+  .hero-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .bi-period-bar { padding: 12px 16px; }
+  .hero-value { font-size: 1.1rem; }
+  .meta-big { font-size: 2.8rem; }
+  .mini-cards { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+@media (max-width: 720px) {
+  .hero-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+  .hero-card { padding: 14px 12px; border-radius: 14px; }
+  .hero-value { font-size: 1rem; }
+  .mini-cards { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+  .meta-big { font-size: 2.4rem; }
+  .bi-period-label { font-size: 1rem; }
+}
+@media (max-width: 480px) {
+  .hero-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .hero-value { font-size: 0.92rem; word-break: break-all; }
+}
