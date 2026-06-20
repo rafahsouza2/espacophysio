@@ -1078,6 +1078,22 @@ a#menu-bi-link { display: flex; align-items: center; }
 /* ── Report item progress bar ── */
 .report-item .pbar-wrap { height: 5px; }
 
+/* ── Filtro de unidade ── */
+.unit-select { border-color: rgba(61,107,26,0.4) !important; color: #2a5010 !important; font-weight: 700; }
+.unit-filter-notice {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 12px 20px; border-radius: 14px;
+  background: rgba(61,107,26,0.09); border: 1.5px solid rgba(61,107,26,0.3);
+  font-size: 0.88rem;
+}
+.unit-clear-btn {
+  margin-left: auto; padding: 5px 14px; border-radius: 999px;
+  background: rgba(184,48,48,0.1); color: #7a1a1a;
+  font-size: 0.8rem; font-weight: 800; text-decoration: none;
+  transition: background 0.15s;
+}
+.unit-clear-btn:hover { background: rgba(184,48,48,0.18); }
+
 /* ── Parâmetros ── */
 .param-form { display: flex; flex-direction: column; gap: 22px; }
 .param-row  { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }

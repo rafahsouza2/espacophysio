@@ -11,6 +11,9 @@
   <button class="bi-sidebar-tab" data-target="tab-atendentes">Atendentes</button>
   <button class="bi-sidebar-tab" data-target="tab-agendamentos">Agendamentos</button>
   <button class="bi-sidebar-tab" data-target="tab-historico">Histórico</button>
+  {% if lista_unidades %}
+  <button class="bi-sidebar-tab" data-target="tab-unidades">Unidades</button>
+  {% endif %}
   {% if user.role in ['admin', 'coordenacao'] %}
   <button class="bi-sidebar-tab" data-target="tab-parametros">⚙ Parâmetros</button>
   <label class="bi-sidebar-tab bi-sidebar-upload-btn" for="upload-input">↑ Importar</label>
@@ -41,11 +44,19 @@
   </div>
   <div class="bi-period-actions">
     {% if reports %}
-    <select class="filter-select" id="period-select" onchange="location.href='/bi?period='+this.value">
+    <select class="filter-select" id="period-select" onchange="applyFilters()">
       {% for r in reports %}
       <option value="{{ r.period_key }}" {% if current_period == r.period_key or (not current_period and loop.first) %}selected{% endif %}>
         {{ r.periodo_label }}
       </option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    {% if lista_unidades %}
+    <select class="filter-select unit-select" id="unit-select" onchange="applyFilters()">
+      <option value="" {% if not current_unit %}selected{% endif %}>Todas as unidades</option>
+      {% for u in lista_unidades %}
+      <option value="{{ u }}" {% if current_unit == u %}selected{% endif %}>{{ u }}</option>
       {% endfor %}
     </select>
     {% endif %}
@@ -712,6 +723,81 @@ const PERIODO   = BI.periodo?.label || '';
 {% endif %}{# /bi_data #}
 
 {# ═══════════════════════════════════════════════════
+   ABA UNIDADES — fora do bi_data, usa lista do contexto
+═══════════════════════════════════════════════════ #}
+{% if lista_unidades and bi_data %}
+<section id="tab-unidades" class="bi-panel">
+
+  <article class="dashboard-card glass">
+    <h3>Ranking por Unidade</h3>
+    <div class="chart-wrap-lg"><canvas id="chart-unidades-bar"></canvas></div>
+  </article>
+
+  <article class="dashboard-card glass">
+    <h3>Detalhamento por Unidade</h3>
+    <div style="overflow-x:auto">
+      <table class="bi-table bi-table-green">
+        <thead>
+          <tr>
+            <th class="center" style="width:36px">#</th>
+            <th>Unidade</th>
+            <th class="right">Agendamentos</th>
+            <th class="right">Finalizados</th>
+            <th class="right">Pendente</th>
+            <th class="right">Produção</th>
+            <th class="right">Taxa Final.</th>
+            <th class="right">% Produção</th>
+            <th class="center">Ver</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set tot_u_total = namespace(n=0) %}{% set tot_u_final = namespace(n=0) %}{% set tot_u_prod = namespace(n=0.0) %}
+          {% for u in bi_data.unidades_summary %}
+          {% set tot_u_total.n = tot_u_total.n + u.total %}
+          {% set tot_u_final.n = tot_u_final.n + u.final %}
+          {% set tot_u_prod.n = tot_u_prod.n + u.prod %}
+          <tr>
+            <td class="center muted" style="font-size:0.8rem">{{ loop.index }}</td>
+            <td><strong>{{ u.nome }}</strong></td>
+            <td class="right">{{ "{:,}".format(u.total).replace(",",".") }}</td>
+            <td class="right ok">{{ "{:,}".format(u.final).replace(",",".") }}</td>
+            <td class="right muted">{{ "{:,}".format(u.marcado).replace(",",".") }}</td>
+            <td class="right">{% if u.prod > 0 %}R$ {{ "{:,.2f}".format(u.prod).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</td>
+            <td class="right {% if u.taxa_final >= 70 %}ok{% elif u.taxa_final >= 50 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(u.taxa_final)|replace(".",",") }}%</td>
+            <td class="right mid">{{ "%.1f"|format(u.pct_prod)|replace(".",",") }}%</td>
+            <td class="center">
+              <a class="report-btn" href="/bi?period={{ current_period or '' }}&unit={{ u.nome | urlencode }}">Ver</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td></td><td><strong>TOTAL</strong></td>
+            <td class="right"><strong>{{ "{:,}".format(tot_u_total.n).replace(",",".") }}</strong></td>
+            <td class="right ok"><strong>{{ "{:,}".format(tot_u_final.n).replace(",",".") }}</strong></td>
+            <td class="right muted"><strong>{{ "{:,}".format(tot_u_total.n - tot_u_final.n).replace(",",".") }}</strong></td>
+            <td class="right"><strong>{% if tot_u_prod.n > 0 %}R$ {{ "{:,.2f}".format(tot_u_prod.n).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</strong></td>
+            <td class="right"><strong>{% if tot_u_total.n > 0 %}{{ "%.1f"|format(tot_u_final.n / tot_u_total.n * 100)|replace(".",",") }}%{% else %}—{% endif %}</strong></td>
+            <td class="right"><strong>100%</strong></td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </article>
+
+  {% if current_unit %}
+  <div class="unit-filter-notice glass">
+    Filtrando: <strong>{{ current_unit }}</strong>
+    <a href="/bi{% if current_period %}?period={{ current_period }}{% endif %}" class="unit-clear-btn">✕ Remover filtro</a>
+  </div>
+  {% endif %}
+
+</section>
+{% endif %}
+
+{# ═══════════════════════════════════════════════════
    ABA PARÂMETROS — fora do bloco bi_data (sempre visível)
 ═══════════════════════════════════════════════════ #}
 {% if user.role in ['admin', 'coordenacao'] %}
@@ -1023,6 +1109,7 @@ const TAB_INITS = {
   'tab-profissionais':initProfissionais,
   'tab-convenios':    initConvenios,
   'tab-atendentes':   initAtendentes,
+  'tab-unidades':     initUnidades,
 };
 
 document.querySelectorAll('#bi-sidebar-tabs .bi-sidebar-tab').forEach(btn => {
@@ -1098,6 +1185,46 @@ async function doDeleteReport(periodKey) {
   } catch(e) { alert('Erro de conexão.'); }
 }
 {% endif %}
+
+/* ─── Filtro de período + unidade ─── */
+function applyFilters() {
+  const period = document.getElementById('period-select')?.value || '';
+  const unit   = document.getElementById('unit-select')?.value   || '';
+  let url = '/bi';
+  const params = [];
+  if (period) params.push('period=' + encodeURIComponent(period));
+  if (unit)   params.push('unit='   + encodeURIComponent(unit));
+  if (params.length) url += '?' + params.join('&');
+  location.href = url;
+}
+
+/* ─── Chart unidades ─── */
+function initUnidades() {
+  {% if bi_data and bi_data.unidades_summary %}
+  const units = {{ bi_data.unidades_summary | tojson }};
+  mkChart('chart-unidades-bar', {
+    type: 'bar',
+    data: {
+      labels: units.map(u => u.nome),
+      datasets: [
+        { label: 'Produção', data: units.map(u => u.prod), backgroundColor: C_GREEN, borderRadius: 4 },
+        { label: 'Finalizados', data: units.map(u => u.final), backgroundColor: C_BLUE, borderRadius: 4, yAxisID: 'y2' },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' },
+        tooltip: { callbacks: { label: ctx => ctx.datasetIndex === 0 ? ' ' + fmtBR(ctx.raw) : ' ' + ctx.raw } }
+      },
+      scales: {
+        x:  { grid: { display: false } },
+        y:  { beginAtZero: true, position: 'left',  ticks: { callback: v => fmtK(v) }, grid: { color: 'rgba(21,21,21,.05)' } },
+        y2: { beginAtZero: true, position: 'right', grid: { display: false } },
+      }
+    }
+  });
+  {% endif %}
+}
 
 /* ─── Parâmetros ─── */
 {% if user.role in ['admin', 'coordenacao'] %}

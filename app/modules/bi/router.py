@@ -60,22 +60,51 @@ def _backfill_bi(d: dict) -> dict:
 
 
 @router.get("/bi", response_class=HTMLResponse)
-async def bi_dashboard(request: Request, period: str = None, user=Depends(require_auth)):
+async def bi_dashboard(
+    request: Request,
+    period:  str = None,
+    unit:    str = None,
+    user=Depends(require_auth),
+):
     if isinstance(user, RedirectResponse):
         return user
 
-    bi_data  = _backfill_bi(load_saved(period_key=period))
-    reports  = list_reports()
-    bi_cfg   = get_bi_config()
+    bi_data_raw = _backfill_bi(load_saved(period_key=period))
+    reports     = list_reports()
+    bi_cfg      = get_bi_config()
+
+    # Filtro de unidade: substitui os KPIs pelo subconjunto da unidade selecionada
+    bi_data       = bi_data_raw
+    current_unit  = None
+    lista_unidades: list[str] = []
+
+    if bi_data_raw:
+        lista_unidades = bi_data_raw.get("lista_unidades", [])
+        if unit and unit in bi_data_raw.get("por_unidade", {}):
+            unit_data    = bi_data_raw["por_unidade"][unit]
+            # Mantém contexto global (periodo, period_key, lista_unidades, etc.)
+            # mas substitui KPIs/charts pela unidade selecionada
+            bi_data = {
+                **bi_data_raw,
+                **unit_data,
+                "periodo":         bi_data_raw["periodo"],
+                "period_key":      bi_data_raw["period_key"],
+                "lista_unidades":  lista_unidades,
+                "por_unidade":     {},           # não repassar (pesado)
+                "unidades_summary": bi_data_raw.get("unidades_summary", []),
+            }
+            current_unit = unit
 
     return templates.TemplateResponse("bi.html", {
-        "request":        request,
-        "user":           user,
-        "active_menu":    "bi",
-        "bi_data":        bi_data,
-        "reports":        reports,
-        "current_period": period,
-        "bi_cfg":         bi_cfg,
+        "request":         request,
+        "user":            user,
+        "active_menu":     "bi",
+        "bi_data":         bi_data,
+        "reports":         reports,
+        "current_period":  period,
+        "current_unit":    current_unit,
+        "lista_unidades":  lista_unidades,
+        "bi_cfg":          bi_cfg,
     })
 
 
