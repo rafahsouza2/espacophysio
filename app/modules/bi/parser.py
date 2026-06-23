@@ -323,7 +323,7 @@ def parse_xls(content: bytes) -> dict:
         if col_convenio:
             cv_grp = df_real.groupby(col_convenio).agg(
                 qtde=("_val","count"), producao=("_val","sum")
-            ).sort_values("producao", ascending=False).head(15)
+            ).sort_values("producao", ascending=False)
             for k, row in cv_grp.iterrows():
                 q = int(row["qtde"]); p = round(float(row["producao"]), 2)
                 convenios.append({

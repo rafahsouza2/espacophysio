@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Autorizações — Cadastros{% endblock %}
+
+{% block auth_sidebar_extra %}
+<div class="bi-sidebar-tabs">
+  <a class="bi-sidebar-tab {% if active_sub == 'painel' %}active{% endif %}" href="/autorizacoes/painel">Painel</a>
+  <a class="bi-sidebar-tab {% if active_sub == 'lista' %}active{% endif %}" href="/autorizacoes/lista">Autorizações</a>
+  <a class="bi-sidebar-tab {% if active_sub == 'cadastros' %}active{% endif %}" href="/autorizacoes/cadastros">Cadastros</a>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Autorizações · Configuração</div>
+    <h1 style="margin:0">Cadastros</h1>
+    <p>Configuração de convênios e dados de referência</p>
+  </div>
+</header>
+
+<!-- Convênios -->
+<div class="list-card glass" style="padding:28px">
+  <h3 style="margin:0 0 20px">Convênios / Planos de Saúde</h3>
+
+  <!-- Formulário de adição -->
+  <form id="form-conv" onsubmit="addConv(event)">
+    <div style="display:grid;grid-template-columns:1fr 180px auto;gap:10px;align-items:end;margin-bottom:20px">
+      <div class="auth-field">
+        <label class="auth-label">Nome do plano *</label>
+        <input class="auth-input" name="nome" required placeholder="Ex: Unimed, Bradesco Saúde...">
+      </div>
+      <div class="auth-field">
+        <label class="auth-label">Código (opcional)</label>
+        <input class="auth-input" name="codigo" placeholder="Código interno">
+      </div>
+      <button type="submit" class="auth-btn-primary" style="height:40px;padding:0 22px;align-self:end">
+        Adicionar
+      </button>
+    </div>
+  </form>
+
+  <!-- Lista -->
+  {% if convenios %}
+  <table class="data-table" id="conv-table">
+    <thead>
+      <tr>
+        <th>Convênio</th>
+        <th>Código</th>
+        <th style="width:100px"></th>
+      </tr>
+    </thead>
+    <tbody id="conv-tbody">
+      {% for c in convenios %}
+      <tr id="conv-row-{{ c.id }}">
+        <td style="font-weight:600">{{ c.nome }}</td>
+        <td style="color:var(--muted)">{{ c.codigo or '—' }}</td>
+        <td style="text-align:right">
+          <button onclick="removeConv('{{ c.id }}')" class="auth-btn-danger-sm">Remover</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div id="conv-empty-state" style="text-align:center;padding:40px 0;color:var(--muted)">
+    <div style="font-size:2rem;margin-bottom:12px;opacity:0.35">🏥</div>
+    <p style="margin:0">Nenhum convênio cadastrado ainda.<br>Adicione o primeiro usando o formulário acima.</p>
+  </div>
+  <table class="data-table" id="conv-table" style="display:none">
+    <thead>
+      <tr><th>Convênio</th><th>Código</th><th style="width:100px"></th></tr>
+    </thead>
+    <tbody id="conv-tbody"></tbody>
+  </table>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function addConv(e) {
+  e.preventDefault();
+  const fd   = new FormData(document.getElementById('form-conv'));
+  const btn  = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = 'Adicionando...';
+
+  try {
+    const res  = await fetch('/autorizacoes/convenios', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok && data.convenio) {
+      const c = data.convenio;
+      const empty = document.getElementById('conv-empty-state');
+      const table = document.getElementById('conv-table');
+      if (empty) { empty.remove(); table.style.display = ''; }
+      document.getElementById('conv-tbody').insertAdjacentHTML('beforeend', `
+        <tr id="conv-row-${c.id}">
+          <td style="font-weight:600">${esc(c.nome)}</td>
+          <td style="color:var(--muted)">${c.codigo || '—'}</td>
+          <td style="text-align:right">
+            <button onclick="removeConv('${c.id}')" class="auth-btn-danger-sm">Remover</button>
+          </td>
+        </tr>
+      `);
+      document.getElementById('form-conv').reset();
+    } else {
+      alert(data.erro || 'Erro ao adicionar');
+    }
+  } catch(e) { alert('Erro de conexão'); }
+  finally { btn.disabled = false; btn.textContent = 'Adicionar'; }
+}
+
+async function removeConv(id) {
+  if (!confirm('Remover este convênio? Autorizações existentes não serão afetadas.')) return;
+  const res  = await fetch('/autorizacoes/convenios/' + id, { method: 'DELETE' });
+  const data = await res.json();
+  if (data.ok) document.getElementById('conv-row-' + id)?.remove();
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+{% endblock %}

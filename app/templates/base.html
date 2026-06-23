@@ -26,15 +26,36 @@
           <small>Intranet corporativa — ambiente seguro para equipe interna.</small>
         </div>
 
+        {% set _mods = (user.modulos_permitidos or '').split(',') | map('trim') | list %}
+        {% set _all = not user.modulos_permitidos or user.role in ('admin','coordenacao') %}
         <nav class="menu-group">
+          <a class="menu-link {% if active_menu == 'home' %}active{% endif %}" href="/home">
+            <span class="menu-icon">🏠</span> Início
+          </a>
+          {% if _all or 'bi' in _mods %}
           <a class="menu-link {% if active_menu == 'bi' %}active{% endif %}" href="/bi" id="menu-bi-link">
             <span class="menu-icon">📊</span> B.I — Indicadores
             {% if active_menu == 'bi' %}<span class="bi-arrow open" id="bi-arrow">›</span>{% endif %}
           </a>
           {% block sidebar_extra %}{% endblock %}
+          {% endif %}
+          {% if _all or 'autorizacoes' in _mods %}
+          <a class="menu-link {% if active_menu == 'autorizacoes' %}active{% endif %}" href="/autorizacoes" id="menu-auth-link">
+            <span class="menu-icon">📄</span> Autorizações
+            {% if active_menu == 'autorizacoes' %}<span class="bi-arrow open">›</span>{% endif %}
+          </a>
+          {% block auth_sidebar_extra %}{% endblock %}
+          {% endif %}
+          {% if _all or 'comunicados' in _mods %}
           <a class="menu-link {% if active_menu == 'comunicados' %}active{% endif %}" href="/comunicados">
             <span class="menu-icon">📢</span> Comunicados
           </a>
+          {% endif %}
+          {% if user.role in ('admin','coordenacao') %}
+          <a class="menu-link {% if active_menu == 'usuarios' %}active{% endif %}" href="/usuarios">
+            <span class="menu-icon">👥</span> Usuários
+          </a>
+          {% endif %}
         </nav>
 
         <div class="sidebar-footer">

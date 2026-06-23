@@ -1,0 +1,513 @@
+{% extends "base.html" %}
+{% block title %}Autorizações{% endblock %}
+
+{% block auth_sidebar_extra %}
+<div class="bi-sidebar-tabs">
+  <a class="bi-sidebar-tab {% if active_sub == 'painel' %}active{% endif %}" href="/autorizacoes/painel">Painel</a>
+  <a class="bi-sidebar-tab {% if active_sub == 'lista' %}active{% endif %}" href="/autorizacoes/lista">Autorizações</a>
+  <a class="bi-sidebar-tab {% if active_sub == 'cadastros' %}active{% endif %}" href="/autorizacoes/cadastros">Cadastros</a>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<!-- Topbar -->
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Autorizações · Kanban</div>
+    <h1 style="margin:0">Autorizações</h1>
+    <p>Arraste os cartões entre colunas para mudar o status</p>
+  </div>
+  <div class="topbar-actions">
+    <input type="text" id="kanban-search" placeholder="Buscar paciente..."
+           oninput="filterCards(this.value)"
+           style="border:1.5px solid rgba(21,21,21,0.11);border-radius:10px;padding:9px 14px;font-family:inherit;font-size:0.86rem;width:200px;background:rgba(255,255,255,0.75);outline:none;color:var(--text)">
+    {% if can_write %}
+    <button class="auth-btn-primary" onclick="openNewModal('')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Nova
+    </button>
+    {% endif %}
+  </div>
+</header>
+
+<!-- Kanban board -->
+<div class="kanban-board" id="kanban-board">
+  {% for s in status_order %}{% if s != 'impresso' %}
+  {% set cards = by_status[s] %}
+  <div class="kanban-col" data-status="{{ s }}"
+       ondragover="onDragOver(event)"
+       ondrop="onDrop(event)"
+       ondragleave="onDragLeave(event)">
+
+    <div class="kanban-col-header" style="border-top:3px solid {{ status_colors[s] }}">
+      <span class="kanban-col-title">{{ status_labels[s] }}</span>
+      <span class="kanban-col-count" id="count-{{ s }}">{{ cards|length }}</span>
+    </div>
+
+    <div class="kanban-cards" id="col-{{ s }}">
+      {% for a in cards %}
+      <div class="kanban-card"
+           id="card-{{ a.id }}"
+           data-id="{{ a.id }}"
+           data-status="{{ a.status }}"
+           data-name="{{ a.paciente_nome | lower }}"
+           data-autorizacao="{{ a.data_autorizacao or '' }}"
+           draggable="true"
+           ondragstart="onDragStart(event)"
+           ondragend="onDragEnd(event)"
+           onclick="openDetail('{{ a.id }}')">
+        <div class="kanban-card-name">{{ a.paciente_nome }}</div>
+        <div class="kanban-card-meta">
+          {% if a.convenios %}<span>{{ a.convenios.nome }}</span>{% endif %}
+          {% if a.procedimento %}<span>{{ a.procedimento }}</span>{% endif %}
+        </div>
+        <div class="kanban-card-footer">
+          <span>{{ a.created_at[:10] if a.created_at else '—' }}</span>
+          {% if a.num_guia %}
+          <span style="font-family:ui-monospace,monospace;font-size:0.67rem;opacity:0.7">{{ a.num_guia }}</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if can_write %}
+    <div style="padding:0 10px 10px;flex-shrink:0">
+      <button class="kanban-add-btn" onclick="openNewModal('{{ s }}')">+ Adicionar</button>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}{% endfor %}
+</div>
+
+<!-- Drawer overlay -->
+<div class="auth-drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+
+<!-- Detail drawer -->
+<div class="auth-drawer" id="auth-drawer">
+  <div class="auth-drawer-topbar">
+    <span class="auth-drawer-label">Autorização</span>
+    <button class="auth-modal-close" onclick="closeDrawer()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div id="drawer-content"></div>
+</div>
+
+<!-- Modal: Nova Autorização -->
+<div class="modal-overlay" id="modal-novo" style="display:none"
+     onclick="if(event.target===this)closeModal('modal-novo')">
+  <div class="modal-card glass">
+    <div class="auth-modal-header">
+      <div>
+        <div class="eyebrow" style="margin-bottom:8px">Nova</div>
+        <h3>Criar Autorização</h3>
+      </div>
+      <button class="auth-modal-close" onclick="closeModal('modal-novo')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <form id="form-novo" onsubmit="submitNovo(event)">
+      <div class="auth-form-grid">
+        <div class="auth-field auth-field-full">
+          <label class="auth-label">Paciente *</label>
+          <input class="auth-input" name="paciente_nome" required
+                 placeholder="Nome completo do paciente">
+        </div>
+        <div class="auth-field">
+          <label class="auth-label">Convênio</label>
+          <select class="auth-select" name="convenio_id">
+            <option value="">Particular / Sem convênio</option>
+            {% for c in convenios %}
+            <option value="{{ c.id }}">{{ c.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="auth-field">
+          <label class="auth-label">Procedimento</label>
+          <input class="auth-input" name="procedimento" placeholder="Ex: Fisioterapia">
+        </div>
+        <div class="auth-field">
+          <label class="auth-label">Nº Guia</label>
+          <input class="auth-input" name="num_guia" placeholder="Número da guia">
+        </div>
+        <div class="auth-field">
+          <label class="auth-label">Data de Solicitação</label>
+          <input class="auth-input" name="data_solicitacao" type="date">
+        </div>
+        <div class="auth-field auth-field-full">
+          <label class="auth-label">Observações</label>
+          <textarea class="auth-input" name="observacoes" style="min-height:68px;resize:vertical"
+                    placeholder="Observações adicionais..."></textarea>
+        </div>
+      </div>
+      <div class="auth-modal-footer">
+        <button type="button" class="auth-btn-ghost" onclick="closeModal('modal-novo')">Cancelar</button>
+        <button type="submit" class="auth-btn-primary" id="btn-salvar-novo">Criar Autorização</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const STATUS_LABELS = {{ status_labels | tojson }};
+const STATUS_ORDER  = {{ status_order | tojson }};
+const DEADLINE_MS   = 48 * 3600 * 1000;
+
+let dragCard       = null;
+let dragFromStatus = null;
+let _newModalStatus = '';
+let _openAuthId    = null;
+
+// ── Countdown 48h ────────────────────────────────────────────────────────────
+
+function updateCountdowns() {
+  const now = Date.now();
+  document.querySelectorAll('.kanban-card').forEach(card => {
+    const authAt = card.dataset.autorizacao;
+    let badge = card.querySelector('.kanban-countdown');
+
+    if (card.dataset.status !== 'autorizado' || !authAt) {
+      badge?.remove();
+      card.classList.remove('kanban-card-atrasado');
+      return;
+    }
+
+    const elapsed = now - new Date(authAt).getTime();
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'kanban-countdown';
+      const footer = card.querySelector('.kanban-card-footer');
+      card.insertBefore(badge, footer);
+    }
+
+    if (elapsed >= DEADLINE_MS) {
+      const overH = Math.floor((elapsed - DEADLINE_MS) / 3600000);
+      const overM = Math.floor(((elapsed - DEADLINE_MS) % 3600000) / 60000);
+      badge.className = 'kanban-countdown kanban-atrasado';
+      badge.textContent = overH > 0 ? `Atrasado ${overH}h${overM}min` : 'Atrasado';
+      card.classList.add('kanban-card-atrasado');
+    } else {
+      const rem  = DEADLINE_MS - elapsed;
+      const remH = Math.floor(rem / 3600000);
+      const remM = Math.floor((rem % 3600000) / 60000);
+      badge.className = 'kanban-countdown kanban-countdown-ok';
+      badge.textContent = `${remH}h ${remM}min`;
+      card.classList.remove('kanban-card-atrasado');
+    }
+  });
+}
+
+updateCountdowns();
+setInterval(updateCountdowns, 60000);
+
+// ── Drag & Drop ──────────────────────────────────────────────────────────────
+
+function onDragStart(e) {
+  dragCard       = e.currentTarget;
+  dragFromStatus = dragCard.dataset.status;
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => dragCard?.classList.add('dragging'), 0);
+}
+
+function onDragEnd() {
+  dragCard?.classList.remove('dragging');
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+
+function onDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+}
+
+async function onDrop(e) {
+  e.preventDefault();
+  const col = e.currentTarget;
+  col.classList.remove('drag-over');
+  if (!dragCard) return;
+
+  const newStatus = col.dataset.status;
+  const oldStatus = dragFromStatus;
+  const authId    = dragCard.dataset.id;
+  if (newStatus === oldStatus) return;
+
+  // Optimistic update
+  document.getElementById('col-' + newStatus)?.prepend(dragCard);
+  dragCard.dataset.status = newStatus;
+  if (newStatus === 'autorizado') dragCard.dataset.autorizacao = new Date().toISOString();
+  else { dragCard.dataset.autorizacao = ''; dragCard.querySelector('.kanban-countdown')?.remove(); dragCard.classList.remove('kanban-card-atrasado'); }
+  updateCount(oldStatus, -1);
+  updateCount(newStatus, +1);
+  updateCountdowns();
+
+  try {
+    const fd = new FormData();
+    fd.append('novo_status', newStatus);
+    const res  = await fetch('/autorizacoes/' + authId + '/status', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) {
+      // Rollback
+      document.getElementById('col-' + oldStatus)?.prepend(dragCard);
+      dragCard.dataset.status = oldStatus;
+      dragCard.dataset.autorizacao = '';
+      updateCount(newStatus, -1);
+      updateCount(oldStatus, +1);
+      updateCountdowns();
+    } else if (_openAuthId === authId) {
+      openDetail(authId);
+    }
+  } catch(_) {}
+
+  dragCard = null;
+}
+
+function updateCount(status, delta) {
+  const el = document.getElementById('count-' + status);
+  if (el) el.textContent = Math.max(0, parseInt(el.textContent || '0') + delta);
+}
+
+// ── Detail Drawer ────────────────────────────────────────────────────────────
+
+async function openDetail(id) {
+  _openAuthId = id;
+  const overlay = document.getElementById('drawer-overlay');
+  const drawer  = document.getElementById('auth-drawer');
+  const content = document.getElementById('drawer-content');
+
+  overlay.classList.add('open');
+  drawer.classList.add('open');
+  content.innerHTML = '<div class="auth-detail-empty" style="min-height:280px"><div style="font-size:2rem;opacity:0.25;animation:spin 1s linear infinite">◌</div></div>';
+
+  try {
+    const res = await fetch('/autorizacoes/detalhe/' + id);
+    content.innerHTML = await res.text();
+  } catch(_) {
+    content.innerHTML = '<div class="auth-detail-empty"><p style="color:var(--accent)">Erro ao carregar.</p></div>';
+  }
+}
+
+function closeDrawer() {
+  _openAuthId = null;
+  document.getElementById('drawer-overlay').classList.remove('open');
+  document.getElementById('auth-drawer').classList.remove('open');
+}
+
+// ── Status change (called from detalhe fragment) ──────────────────────────────
+
+async function changeStatus(authId, newStatus) {
+  const fd = new FormData();
+  fd.append('novo_status', newStatus);
+  try {
+    const res  = await fetch('/autorizacoes/' + authId + '/status', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) return;
+    const card = document.getElementById('card-' + authId);
+    if (card) {
+      const old = card.dataset.status;
+      document.getElementById('col-' + newStatus)?.prepend(card);
+      card.dataset.status = newStatus;
+      if (newStatus === 'autorizado') card.dataset.autorizacao = new Date().toISOString();
+      else { card.dataset.autorizacao = ''; card.querySelector('.kanban-countdown')?.remove(); card.classList.remove('kanban-card-atrasado'); }
+      updateCount(old, -1);
+      updateCount(newStatus, +1);
+      updateCountdowns();
+    }
+    openDetail(authId);
+  } catch(_) {}
+}
+
+// ── Save edit (called from detalhe fragment) ──────────────────────────────────
+
+async function saveEdit(authId) {
+  const form = document.getElementById('detail-form-' + authId);
+  if (!form) return;
+  const fd  = new FormData(form);
+  const btn = form.querySelector('[data-save-btn]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+  try {
+    const res  = await fetch('/autorizacoes/' + authId + '/editar', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+      const nome = fd.get('paciente_nome');
+      const nameEl = document.querySelector('#card-' + authId + ' .kanban-card-name');
+      if (nameEl) { nameEl.textContent = nome; document.getElementById('card-' + authId).dataset.name = nome.toLowerCase(); }
+      if (btn) {
+        btn.textContent = '✓ Salvo';
+        btn.style.cssText = 'background:rgba(49,166,106,0.15);color:#1a6b42;border-color:#31a66a';
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Salvar alterações'; btn.style.cssText = ''; }, 2000);
+      }
+    }
+  } catch(_) { if (btn) { btn.disabled = false; btn.textContent = 'Salvar alterações'; } }
+}
+
+// ── Delete (called from detalhe fragment) ─────────────────────────────────────
+
+async function deleteAuth(authId) {
+  if (!confirm('Remover esta autorização permanentemente?')) return;
+  try {
+    const res  = await fetch('/autorizacoes/' + authId, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.ok) {
+      const card = document.getElementById('card-' + authId);
+      if (card) { updateCount(card.dataset.status, -1); card.remove(); }
+      closeDrawer();
+    }
+  } catch(_) {}
+}
+
+// ── Search (client-side) ──────────────────────────────────────────────────────
+
+function filterCards(q) {
+  const term = q.toLowerCase().trim();
+  document.querySelectorAll('.kanban-card').forEach(card => {
+    card.style.display = (!term || card.dataset.name.includes(term)) ? '' : 'none';
+  });
+}
+
+// ── Nova Autorização ──────────────────────────────────────────────────────────
+
+function openNewModal(status) {
+  _newModalStatus = status || 'para_solicitar';
+  openModal('modal-novo');
+}
+
+async function submitNovo(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btn-salvar-novo');
+  btn.disabled = true; btn.textContent = 'Criando...';
+  const fd = new FormData(document.getElementById('form-novo'));
+
+  try {
+    const res  = await fetch('/autorizacoes/novo', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+      closeModal('modal-novo');
+      document.getElementById('form-novo').reset();
+      const status   = _newModalStatus;
+      const col      = document.getElementById('col-' + status);
+      const nome     = fd.get('paciente_nome') || '';
+      const convOpt  = document.querySelector('#form-novo select[name="convenio_id"] option:checked');
+      const convNome = convOpt && convOpt.value ? esc(convOpt.textContent) : '';
+      const today    = new Date().toISOString().slice(0, 10);
+      const authAt   = status === 'autorizado' ? new Date().toISOString() : '';
+      col?.insertAdjacentHTML('afterbegin', `
+        <div class="kanban-card" id="card-${data.id}"
+             data-id="${data.id}" data-status="${status}"
+             data-name="${esc(nome.toLowerCase())}" data-autorizacao="${authAt}"
+             draggable="true" ondragstart="onDragStart(event)" ondragend="onDragEnd(event)"
+             onclick="openDetail('${data.id}')">
+          <div class="kanban-card-name">${esc(nome)}</div>
+          <div class="kanban-card-meta">${convNome ? `<span>${convNome}</span>` : ''}</div>
+          <div class="kanban-card-footer"><span>${today}</span></div>
+        </div>
+      `);
+      updateCount(status, +1);
+      updateCountdowns();
+      openDetail(data.id);
+    } else {
+      alert(data.erro || 'Erro ao criar');
+    }
+  } catch(_) { alert('Erro de conexão'); }
+  finally { btn.disabled = false; btn.textContent = 'Criar Autorização'; }
+}
+
+// ── Upload de arquivos ────────────────────────────────────────────────────────
+
+function handleFileDrop(e, authId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  uploadArquivos(e.dataTransfer.files, authId);
+}
+
+async function uploadArquivos(files, authId) {
+  if (!files || !files.length) return;
+  for (const file of Array.from(files)) {
+    const fd = new FormData();
+    fd.append('arquivo', file);
+
+    const listEl = document.getElementById('arquivos-list-' + authId);
+    const tempId = 'upload-tmp-' + Date.now();
+    document.getElementById('no-arquivos-msg-' + authId)?.remove();
+    listEl?.insertAdjacentHTML('beforeend', `
+      <div id="${tempId}" class="auth-arquivo-item" style="opacity:0.5">
+        <div class="auth-arquivo-icon">⏳</div>
+        <div class="auth-arquivo-info">
+          <div class="auth-arquivo-name">${esc(file.name)}</div>
+          <div class="auth-arquivo-meta">Enviando...</div>
+        </div>
+      </div>`);
+
+    try {
+      const res  = await fetch('/autorizacoes/' + authId + '/arquivos', { method: 'POST', body: fd });
+      const data = await res.json();
+      const tmp  = document.getElementById(tempId);
+      if (data.ok && data.arquivo) {
+        if (tmp) tmp.outerHTML = _arquivoHTML(data.arquivo);
+      } else {
+        tmp?.remove();
+        alert(data.erro || 'Erro ao enviar arquivo');
+      }
+    } catch (_) {
+      document.getElementById(tempId)?.remove();
+      alert('Erro de conexão');
+    }
+  }
+}
+
+function _arquivoHTML(f) {
+  const ext  = (f.nome || '').split('.').pop().toLowerCase();
+  const icon = ext === 'pdf' ? '📄' : ['jpg','jpeg','png','gif','webp'].includes(ext) ? '🖼️' : ['doc','docx'].includes(ext) ? '📝' : '📎';
+  const kb   = f.tamanho ? Math.round(f.tamanho / 1024) : 0;
+  const size = kb > 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB';
+  return `
+    <div id="arquivo-${f.id}" class="auth-arquivo-item">
+      <div class="auth-arquivo-icon">${icon}</div>
+      <div class="auth-arquivo-info">
+        <div class="auth-arquivo-name">${esc(f.nome)}</div>
+        <div class="auth-arquivo-meta">${size} · ${esc(f.criado_por || '')}</div>
+      </div>
+      <div class="auth-arquivo-actions">
+        <a href="${f.url}" target="_blank" class="auth-arquivo-btn">↓ Baixar</a>
+        <button onclick="deleteArquivo('${f.id}','${f.autorizacao_id}')" class="auth-arquivo-btn auth-arquivo-btn-del">✕</button>
+      </div>
+    </div>`;
+}
+
+async function deleteArquivo(fileId, authId) {
+  if (!confirm('Remover este arquivo?')) return;
+  try {
+    const res  = await fetch('/autorizacoes/arquivos/' + fileId, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('arquivo-' + fileId)?.remove();
+      const listEl = document.getElementById('arquivos-list-' + authId);
+      if (listEl && !listEl.querySelector('.auth-arquivo-item')) {
+        listEl.innerHTML = `<p id="no-arquivos-msg-${authId}" class="auth-no-files">Nenhum arquivo anexado</p>`;
+      }
+    }
+  } catch (_) {}
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+
+function openModal(id)  { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); closeModal('modal-novo'); } });
+</script>
+<style>@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }</style>
+{% endblock %}

@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+{% block title %}Usuários{% endblock %}
+
+{% block content %}
+<div style="max-width:1100px;margin:0 auto;padding:28px 20px">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+    <div>
+      <h1 style="font-size:1.5rem;font-weight:700;margin:0">Usuários</h1>
+      <p style="margin:4px 0 0;color:var(--muted);font-size:0.875rem">{{ usuarios|length }} usuário{{ 's' if usuarios|length != 1 else '' }} cadastrado{{ 's' if usuarios|length != 1 else '' }}</p>
+    </div>
+    <button class="usr-btn-primary" onclick="openModal('modal-novo')">+ Novo Usuário</button>
+  </div>
+
+  <!-- Tabela -->
+  <div class="dashboard-card glass" style="padding:0;overflow:hidden">
+    <table class="usr-table">
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>E-mail</th>
+          <th>Papel</th>
+          <th>Módulos</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in usuarios %}
+        {% set mods = u.modulos_permitidos.split(',') | map('trim') | list if u.modulos_permitidos else [] %}
+        <tr class="{{ 'usr-row-inactive' if not u.active }}">
+          <td>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="usr-avatar">{{ u.full_name[0]|upper if u.full_name else '?' }}</div>
+              <span style="font-weight:500">{{ u.full_name }}</span>
+            </div>
+          </td>
+          <td style="color:var(--muted);font-size:0.85rem">{{ u.email or '—' }}</td>
+          <td>
+            <span class="usr-role-badge usr-role-{{ u.role }}">
+              {{ role_labels.get(u.role, u.role) }}
+            </span>
+          </td>
+          <td style="font-size:0.82rem;color:var(--muted)">
+            {% if not u.modulos_permitidos or u.role in ('admin','coordenacao') %}
+              <span style="color:var(--success,#16a34a)">Acesso total</span>
+            {% else %}
+              {% for m in mods %}
+                {% for mod in modules %}{% if mod.key == m %}<span class="usr-mod-chip">{{ mod.label }}</span>{% endif %}{% endfor %}
+              {% endfor %}
+            {% endif %}
+          </td>
+          <td>
+            {% if u.active %}
+              <span class="usr-status-active">Ativo</span>
+            {% else %}
+              <span class="usr-status-inactive">Inativo</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right;white-space:nowrap">
+            <button class="usr-btn-sm"
+              data-id="{{ u.id }}"
+              data-name="{{ u.full_name | e }}"
+              data-email="{{ u.email | e }}"
+              data-role="{{ u.role }}"
+              data-modulos="{{ u.modulos_permitidos or '' }}"
+              data-active="{{ 'true' if u.active else 'false' }}"
+              onclick="openEditFromEl(this)">Editar</button>
+            <button class="usr-btn-sm usr-btn-sm-{{ 'danger' if u.active else 'success' }}"
+              data-id="{{ u.id }}"
+              data-active="{{ 'true' if u.active else 'false' }}"
+              onclick="toggleAtivoFromEl(this)">
+              {{ 'Desativar' if u.active else 'Ativar' }}
+            </button>
+            <button class="usr-btn-sm usr-btn-sm-danger"
+              data-id="{{ u.id }}"
+              data-name="{{ u.full_name | e }}"
+              onclick="confirmarExcluir(this)">Excluir</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" style="text-align:center;padding:40px;color:var(--muted)">
+            Nenhum usuário cadastrado ainda.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ─── Modal: Novo Usuário ─── -->
+<div id="modal-novo" class="usr-modal-overlay" style="display:none" onclick="if(event.target===this)closeModal('modal-novo')">
+  <div class="usr-modal">
+    <div class="usr-modal-header">
+      <h2>Novo Usuário</h2>
+      <button class="usr-modal-close" onclick="closeModal('modal-novo')">✕</button>
+    </div>
+
+    <form id="form-novo" onsubmit="submitNovo(event)">
+      <div class="usr-form-grid">
+        <div class="usr-field usr-field-full">
+          <label class="usr-label">Nome completo</label>
+          <input class="usr-input" name="full_name" required placeholder="Ex: Maria Silva">
+        </div>
+        <div class="usr-field">
+          <label class="usr-label">E-mail</label>
+          <input class="usr-input" name="email" type="email" required placeholder="usuario@espacophysio.com.br">
+        </div>
+        <div class="usr-field">
+          <label class="usr-label">Senha provisória</label>
+          <input class="usr-input" name="password" type="password" required minlength="6" placeholder="Mínimo 6 caracteres">
+        </div>
+        <div class="usr-field">
+          <label class="usr-label">Papel</label>
+          <select class="usr-select" name="role" onchange="onRoleChange(this,'novo')">
+            <option value="recepcao">Recepção</option>
+            <option value="fisioterapeuta">Fisioterapeuta</option>
+            <option value="financeiro">Financeiro</option>
+            <option value="coordenacao">Coordenação</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </div>
+        <div class="usr-field" id="mod-field-novo">
+          <label class="usr-label">Acesso a módulos</label>
+          <select class="usr-select" name="modulos_permitidos">
+            <option value="">Todos os módulos do cargo</option>
+            {% for m in modules %}
+            <option value="{{ m.key }}">Apenas {{ m.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div id="form-novo-erro" class="usr-form-erro" style="display:none"></div>
+      <div class="usr-modal-footer">
+        <button type="button" class="usr-btn-ghost" onclick="closeModal('modal-novo')">Cancelar</button>
+        <button type="submit" class="usr-btn-primary">Criar usuário</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ─── Modal: Editar Usuário ─── -->
+<div id="modal-editar" class="usr-modal-overlay" style="display:none" onclick="if(event.target===this)closeModal('modal-editar')">
+  <div class="usr-modal">
+    <div class="usr-modal-header">
+      <h2>Editar Usuário</h2>
+      <button class="usr-modal-close" onclick="closeModal('modal-editar')">✕</button>
+    </div>
+
+    <form id="form-editar" onsubmit="submitEditar(event)">
+      <input type="hidden" name="user_id" id="edit-user-id">
+      <div class="usr-form-grid">
+        <div class="usr-field usr-field-full">
+          <label class="usr-label">Nome completo</label>
+          <input class="usr-input" name="full_name" id="edit-full-name" required>
+        </div>
+        <div class="usr-field">
+          <label class="usr-label">E-mail</label>
+          <input class="usr-input" id="edit-email" disabled style="opacity:.55;cursor:not-allowed">
+        </div>
+        <div class="usr-field">
+          <label class="usr-label">Nova senha <span style="font-weight:400;color:var(--muted)">(opcional)</span></label>
+          <input class="usr-input" name="nova_senha" type="password" minlength="6" placeholder="Deixe em branco para não alterar">
+        </div>
+        <div class="usr-field">
+          <label class="usr-label">Papel</label>
+          <select class="usr-select" name="role" id="edit-role" onchange="onRoleChange(this,'editar')">
+            <option value="recepcao">Recepção</option>
+            <option value="fisioterapeuta">Fisioterapeuta</option>
+            <option value="financeiro">Financeiro</option>
+            <option value="coordenacao">Coordenação</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </div>
+        <div class="usr-field" id="mod-field-editar">
+          <label class="usr-label">Acesso a módulos</label>
+          <select class="usr-select" name="modulos_permitidos" id="edit-modulos">
+            <option value="">Todos os módulos do cargo</option>
+            {% for m in modules %}
+            <option value="{{ m.key }}">Apenas {{ m.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="usr-field">
+          <label class="usr-label">Status</label>
+          <select class="usr-select" name="ativo" id="edit-ativo">
+            <option value="true">Ativo</option>
+            <option value="false">Inativo</option>
+          </select>
+        </div>
+      </div>
+      <div id="form-editar-erro" class="usr-form-erro" style="display:none"></div>
+      <div class="usr-modal-footer">
+        <button type="button" class="usr-btn-ghost" onclick="closeModal('modal-editar')">Cancelar</button>
+        <button type="submit" class="usr-btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.usr-table { width:100%;border-collapse:collapse }
+.usr-table thead { background:var(--green,#2d6a2d) }
+.usr-table thead th { color:#fff;font-size:0.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:11px 16px;text-align:left }
+.usr-table tbody tr { border-bottom:1px solid var(--border,#e5e7eb);transition:background .15s }
+.usr-table tbody tr:last-child { border-bottom:none }
+.usr-table tbody tr:hover { background:#f9fafb }
+.usr-table td { padding:13px 16px;vertical-align:middle }
+.usr-row-inactive { opacity:.55 }
+
+.usr-avatar { width:32px;height:32px;border-radius:50%;background:var(--green,#2d6a2d);color:#fff;font-weight:700;font-size:.85rem;display:flex;align-items:center;justify-content:center;flex-shrink:0 }
+
+.usr-role-badge { display:inline-block;padding:2px 9px;border-radius:99px;font-size:.72rem;font-weight:600 }
+.usr-role-admin { background:#fef2f2;color:#b91c1c }
+.usr-role-coordenacao { background:#fff7ed;color:#c2410c }
+.usr-role-financeiro { background:#eff6ff;color:#1d4ed8 }
+.usr-role-recepcao { background:#f0fdf4;color:#15803d }
+.usr-role-fisioterapeuta { background:#f5f3ff;color:#7c3aed }
+
+.usr-mod-chip { display:inline-block;background:#f3f4f6;color:#374151;font-size:.72rem;padding:1px 7px;border-radius:6px;margin:1px 2px }
+
+.usr-status-active { color:#15803d;font-weight:600;font-size:.8rem }
+.usr-status-inactive { color:#9ca3af;font-weight:600;font-size:.8rem }
+
+.usr-btn-primary { background:var(--green,#2d6a2d);color:#fff;border:none;padding:9px 18px;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .15s }
+.usr-btn-primary:hover { opacity:.88 }
+.usr-btn-ghost { background:transparent;border:1px solid var(--border,#e5e7eb);color:var(--text,#111);padding:9px 18px;border-radius:9px;font-size:.875rem;font-weight:500;cursor:pointer }
+.usr-btn-ghost:hover { background:#f3f4f6 }
+
+.usr-btn-sm { font-size:.75rem;padding:4px 10px;border-radius:7px;border:1px solid var(--border,#e5e7eb);background:#fff;cursor:pointer;margin-left:4px;font-weight:500;transition:background .12s }
+.usr-btn-sm:hover { background:#f3f4f6 }
+.usr-btn-sm-danger { color:#dc2626;border-color:#fecaca }
+.usr-btn-sm-danger:hover { background:#fef2f2 }
+.usr-btn-sm-success { color:#15803d;border-color:#bbf7d0 }
+.usr-btn-sm-success:hover { background:#f0fdf4 }
+
+.usr-modal-overlay { position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px }
+.usr-modal { background:#fff;border-radius:18px;width:100%;max-width:540px;box-shadow:0 20px 60px rgba(0,0,0,.18);overflow:hidden }
+.usr-modal-header { display:flex;align-items:center;justify-content:space-between;padding:20px 24px 16px;border-bottom:1px solid var(--border,#e5e7eb) }
+.usr-modal-header h2 { margin:0;font-size:1.1rem;font-weight:700 }
+.usr-modal-close { background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--muted);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:50% }
+.usr-modal-close:hover { background:#f3f4f6 }
+.usr-modal-footer { display:flex;justify-content:flex-end;gap:10px;padding:16px 24px;border-top:1px solid var(--border,#e5e7eb);margin-top:4px }
+
+.usr-form-grid { display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:20px 24px 4px }
+.usr-field { display:flex;flex-direction:column;gap:5px }
+.usr-field-full { grid-column:1/-1 }
+.usr-label { font-size:.78rem;font-weight:600;color:var(--muted) }
+.usr-input,.usr-select { padding:9px 12px;border:1.5px solid var(--border,#e5e7eb);border-radius:9px;font-size:.875rem;outline:none;transition:border-color .15s;background:#fff;width:100%;box-sizing:border-box }
+.usr-input:focus,.usr-select:focus { border-color:var(--green,#2d6a2d) }
+
+.usr-form-erro { margin:4px 24px 0;padding:9px 12px;background:#fef2f2;color:#b91c1c;border-radius:8px;font-size:.82rem }
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function openModal(id) { document.getElementById(id).style.display='flex' }
+function closeModal(id) { document.getElementById(id).style.display='none' }
+
+function onRoleChange(sel, prefix) {
+  const isAdmin = sel.value === 'admin' || sel.value === 'coordenacao';
+  const field = document.getElementById('mod-field-' + prefix);
+  if (field) {
+    field.style.opacity = isAdmin ? '.4' : '1';
+    field.querySelector('select').disabled = isAdmin;
+    if (isAdmin) field.querySelector('select').value = '';
+  }
+}
+
+function openEditFromEl(btn) {
+  const d = btn.dataset;
+  document.getElementById('edit-user-id').value   = d.id;
+  document.getElementById('edit-full-name').value = d.name;
+  document.getElementById('edit-email').value     = d.email;
+  document.getElementById('edit-role').value      = d.role;
+  document.getElementById('edit-modulos').value   = d.modulos || '';
+  document.getElementById('edit-ativo').value     = d.active === 'true' ? 'true' : 'false';
+  document.querySelector('#form-editar [name="nova_senha"]').value = '';
+  document.getElementById('form-editar-erro').style.display = 'none';
+  onRoleChange(document.getElementById('edit-role'), 'editar');
+  openModal('modal-editar');
+}
+
+function toggleAtivoFromEl(btn) {
+  btn.disabled = true;
+  fetch(`/usuarios/${btn.dataset.id}/toggle-ativo`, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => { if (d.ok) location.reload(); else { alert(d.erro || 'Erro.'); btn.disabled = false; } })
+    .catch(() => { alert('Erro de conexão.'); btn.disabled = false; });
+}
+
+function confirmarExcluir(btn) {
+  const nome = btn.dataset.name;
+  if (!confirm(`Excluir permanentemente "${nome}"?\n\nEsta ação não pode ser desfeita.`)) return;
+  btn.disabled = true;
+  fetch(`/usuarios/${btn.dataset.id}/excluir`, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => { if (d.ok) location.reload(); else { alert(d.erro || 'Erro ao excluir.'); btn.disabled = false; } })
+    .catch(() => { alert('Erro de conexão.'); btn.disabled = false; });
+}
+
+async function submitNovo(e) {
+  e.preventDefault();
+  const btn  = e.target.querySelector('[type=submit]');
+  const erro = document.getElementById('form-novo-erro');
+  btn.disabled = true; btn.textContent = 'Criando...';
+  erro.style.display = 'none';
+
+  const fd = new FormData(e.target);
+  const r  = await fetch('/usuarios/criar', { method:'POST', body:fd });
+  const d  = await r.json();
+
+  if (d.ok) {
+    location.reload();
+  } else {
+    erro.textContent = d.erro || 'Erro desconhecido.';
+    erro.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Criar usuário';
+  }
+}
+
+async function submitEditar(e) {
+  e.preventDefault();
+  const btn  = e.target.querySelector('[type=submit]');
+  const erro = document.getElementById('form-editar-erro');
+  btn.disabled = true; btn.textContent = 'Salvando...';
+  erro.style.display = 'none';
+
+  const fd     = new FormData(e.target);
+  const userId = fd.get('user_id');
+  fd.delete('user_id');
+
+  const r = await fetch(`/usuarios/${userId}/editar`, { method:'POST', body:fd });
+  const d = await r.json();
+
+  if (d.ok) {
+    location.reload();
+  } else {
+    erro.textContent = d.erro || 'Erro desconhecido.';
+    erro.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Salvar';
+  }
+}
+
+async function toggleAtivo(userId, currentAtivo, btn) {
+  btn.disabled = true;
+  const r = await fetch(`/usuarios/${userId}/toggle-ativo`, { method:'POST' });
+  const d = await r.json();
+  if (d.ok) {
+    location.reload();
+  } else {
+    alert(d.erro || 'Erro ao alterar status.');
+    btn.disabled = false;
+  }
+}
+</script>
+{% endblock %}

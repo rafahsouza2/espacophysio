@@ -1,0 +1,219 @@
+{% set a = auth %}
+<div class="auth-detail-inner">
+
+  <!-- Header do detalhe -->
+  <div class="auth-detail-header">
+    <div>
+      <h2 class="auth-detail-title">{{ a.paciente_nome }}</h2>
+      <div class="auth-detail-sub">
+        {% if a.created_at %}Criado em {{ a.created_at[:10] }}{% endif %}
+        {% if a.criado_por %} · por {{ a.criado_por }}{% endif %}
+      </div>
+    </div>
+    {% if is_admin %}
+    <button onclick="deleteAuth('{{ a.id }}')" class="auth-btn-danger-sm">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+      Excluir
+    </button>
+    {% endif %}
+  </div>
+
+  <!-- Fluxo de status -->
+  <div class="auth-detail-section">
+    <div class="auth-section-title">Status da Autorização</div>
+    <div class="auth-status-flow">
+      {% for s in status_order %}
+      {% set is_cur = (a.status == s) %}
+      <button
+        class="auth-status-btn auth-status-{{ s }}{% if is_cur %} auth-status-current{% endif %}"
+        {% if can_write and not is_cur %}
+          onclick="changeStatus('{{ a.id }}', '{{ s }}')"
+        {% else %}
+          disabled
+        {% endif %}
+      >
+        {% if is_cur %}<span class="auth-status-dot"></span>{% endif %}
+        {{ status_labels[s] }}
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Formulário de edição -->
+  {% if can_write %}
+  <form id="detail-form-{{ a.id }}" class="auth-detail-section"
+        onsubmit="event.preventDefault(); saveEdit('{{ a.id }}')">
+    <div class="auth-section-title">Dados da Autorização</div>
+    <div class="auth-form-grid">
+
+      <div class="auth-field auth-field-full">
+        <label class="auth-label">Paciente</label>
+        <input class="auth-input" name="paciente_nome"
+               value="{{ a.paciente_nome }}" required>
+      </div>
+
+      <div class="auth-field">
+        <label class="auth-label">Convênio</label>
+        <select class="auth-select" name="convenio_id">
+          <option value="">Particular / Sem convênio</option>
+          {% for c in convenios %}
+          <option value="{{ c.id }}" {% if a.convenio_id == c.id %}selected{% endif %}>
+            {{ c.nome }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="auth-field">
+        <label class="auth-label">Procedimento</label>
+        <input class="auth-input" name="procedimento"
+               value="{{ a.procedimento or '' }}" placeholder="Ex: Fisioterapia">
+      </div>
+
+      <div class="auth-field">
+        <label class="auth-label">Nº Guia</label>
+        <input class="auth-input" name="num_guia"
+               value="{{ a.num_guia or '' }}" placeholder="Número da guia">
+      </div>
+
+      <div class="auth-field">
+        <label class="auth-label">Data de Solicitação</label>
+        <input class="auth-input" type="date" name="data_solicitacao"
+               value="{{ a.data_solicitacao or '' }}">
+      </div>
+
+      {% if a.data_autorizacao %}
+      <div class="auth-field">
+        <label class="auth-label">Autorizado em</label>
+        <input class="auth-input" value="{{ a.data_autorizacao[:10] }}" disabled
+               style="opacity:0.55;cursor:not-allowed">
+      </div>
+      {% endif %}
+
+      <div class="auth-field auth-field-full">
+        <label class="auth-label">Observações</label>
+        <textarea class="auth-input" name="observacoes"
+                  style="min-height:80px;resize:vertical"
+                  placeholder="Observações adicionais...">{{ a.observacoes or '' }}</textarea>
+      </div>
+
+    </div>
+    <div style="text-align:right;margin-top:14px">
+      <button type="submit" class="auth-btn-save" data-save-btn>
+        Salvar alterações
+      </button>
+    </div>
+  </form>
+
+  {% else %}
+  <!-- Leitura apenas -->
+  <div class="auth-detail-section">
+    <div class="auth-section-title">Dados da Autorização</div>
+    <div class="auth-readonly-grid">
+      <div class="auth-readonly-field">
+        <div class="auth-label">Convênio</div>
+        <div class="auth-readonly-val">{{ a.convenios.nome if a.convenios else 'Particular' }}</div>
+      </div>
+      <div class="auth-readonly-field">
+        <div class="auth-label">Procedimento</div>
+        <div class="auth-readonly-val">{{ a.procedimento or '—' }}</div>
+      </div>
+      <div class="auth-readonly-field">
+        <div class="auth-label">Nº Guia</div>
+        <div class="auth-readonly-val">{{ a.num_guia or '—' }}</div>
+      </div>
+      <div class="auth-readonly-field">
+        <div class="auth-label">Data de Solicitação</div>
+        <div class="auth-readonly-val">{{ a.data_solicitacao or '—' }}</div>
+      </div>
+      {% if a.observacoes %}
+      <div class="auth-readonly-field" style="grid-column:1/-1">
+        <div class="auth-label">Observações</div>
+        <div class="auth-readonly-val" style="line-height:1.65">{{ a.observacoes }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Arquivos -->
+  <div class="auth-detail-section">
+    <div class="auth-section-title">Arquivos</div>
+
+    <div id="arquivos-list-{{ a.id }}">
+      {% if arquivos %}
+        {% for f in arquivos %}
+        {% set ext = f.nome.split('.')[-1].lower() if '.' in f.nome else '' %}
+        {% set icon = '📄' if ext == 'pdf' else '🖼️' if ext in ['jpg','jpeg','png','gif','webp'] else '📝' if ext in ['doc','docx'] else '📎' %}
+        {% set kb = (f.tamanho // 1024) if f.tamanho else 0 %}
+        {% set size_str = ((kb // 1024)|string + ' MB') if kb > 1024 else (kb|string + ' KB') %}
+        <div id="arquivo-{{ f.id }}" class="auth-arquivo-item">
+          <div class="auth-arquivo-icon">{{ icon }}</div>
+          <div class="auth-arquivo-info">
+            <div class="auth-arquivo-name">{{ f.nome }}</div>
+            <div class="auth-arquivo-meta">{{ size_str }} · {{ f.criado_por or '' }}</div>
+          </div>
+          <div class="auth-arquivo-actions">
+            <a href="{{ f.url }}" target="_blank" class="auth-arquivo-btn">↓ Baixar</a>
+            {% if can_write %}
+            <button onclick="deleteArquivo('{{ f.id }}','{{ a.id }}')" class="auth-arquivo-btn auth-arquivo-btn-del">✕</button>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p id="no-arquivos-msg-{{ a.id }}" class="auth-no-files">Nenhum arquivo anexado</p>
+      {% endif %}
+    </div>
+
+    {% if can_write %}
+    <div class="auth-upload-area"
+         ondragover="event.preventDefault();this.classList.add('drag-over')"
+         ondragleave="this.classList.remove('drag-over')"
+         ondrop="handleFileDrop(event,'{{ a.id }}')"
+         onclick="document.getElementById('file-inp-{{ a.id }}').click()">
+      <input type="file" id="file-inp-{{ a.id }}" multiple
+             onchange="uploadArquivos(this.files,'{{ a.id }}')" style="display:none">
+      <div class="auth-upload-icon">📎</div>
+      <p class="auth-upload-text">Clique ou arraste arquivos aqui</p>
+      <p class="auth-upload-hint">PDF, imagens, documentos · máx. 20 MB</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Histórico de status -->
+  {% if log %}
+  <div class="auth-detail-section">
+    <div class="auth-section-title">Histórico</div>
+    <div class="auth-log-list">
+      {% for entry in log %}
+      <div class="auth-log-item">
+        <div class="auth-log-line">
+          <div class="auth-log-dot"></div>
+          {% if not loop.last %}<div class="auth-log-track"></div>{% endif %}
+        </div>
+        <div class="auth-log-body">
+          <div class="auth-log-chips">
+            {% if entry.status_anterior %}
+            <span class="auth-badge auth-badge-{{ entry.status_anterior }}">
+              {{ status_labels.get(entry.status_anterior, entry.status_anterior) }}
+            </span>
+            <span style="color:var(--muted);font-size:0.8rem;margin:0 4px">→</span>
+            {% endif %}
+            <span class="auth-badge auth-badge-{{ entry.status_novo }}">
+              {{ status_labels.get(entry.status_novo, entry.status_novo) }}
+            </span>
+          </div>
+          <div class="auth-log-meta">
+            {{ entry.usuario or 'Sistema' }}
+            {% if entry.created_at %} · {{ entry.created_at[:16].replace('T', ' ') }}{% endif %}
+            {% if entry.obs %} · <em>{{ entry.obs }}</em>{% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>

@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Autorizações — Painel{% endblock %}
+
+{% block auth_sidebar_extra %}
+<div class="bi-sidebar-tabs">
+  <a class="bi-sidebar-tab {% if active_sub == 'painel' %}active{% endif %}" href="/autorizacoes/painel">Painel</a>
+  <a class="bi-sidebar-tab {% if active_sub == 'lista' %}active{% endif %}" href="/autorizacoes/lista">Autorizações</a>
+  <a class="bi-sidebar-tab {% if active_sub == 'cadastros' %}active{% endif %}" href="/autorizacoes/cadastros">Cadastros</a>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Autorizações · Visão geral</div>
+    <h1 style="margin:0">Painel</h1>
+    <p>Indicadores de autorizações — {{ mes_label }}</p>
+  </div>
+</header>
+
+<!-- KPI grid -->
+<div class="painel-kpi-grid">
+
+  <div class="painel-kpi" style="--kpi-color:#e5622e">
+    <div class="painel-kpi-label">Mês atual</div>
+    <div class="painel-kpi-value">{{ total_mes }}</div>
+    <div class="painel-kpi-sub">Abertas em {{ mes_label }}</div>
+  </div>
+
+  <div class="painel-kpi" style="--kpi-color:#9ca3af">
+    <div class="painel-kpi-label">Para Solicitar</div>
+    <div class="painel-kpi-value">{{ contadores.para_solicitar }}</div>
+    <div class="painel-kpi-sub">Aguardando envio</div>
+  </div>
+
+  <div class="painel-kpi" style="--kpi-color:#ffb547">
+    <div class="painel-kpi-label">Em Análise</div>
+    <div class="painel-kpi-value">{{ contadores.em_analise }}</div>
+    <div class="painel-kpi-sub">No convênio</div>
+  </div>
+
+  <div class="painel-kpi" style="--kpi-color:#31a66a">
+    <div class="painel-kpi-label">Autorizado</div>
+    <div class="painel-kpi-value">{{ contadores.autorizado }}</div>
+    <div class="painel-kpi-sub">Prontos para agendar</div>
+  </div>
+
+  <div class="painel-kpi" style="--kpi-color:#16a34a">
+    <div class="painel-kpi-label">Agendado</div>
+    <div class="painel-kpi-value">{{ contadores.agendado }}</div>
+    <div class="painel-kpi-sub">Com horário marcado</div>
+  </div>
+
+  <div class="painel-kpi" style="--kpi-color:#e5622e">
+    <div class="painel-kpi-label">Pendência</div>
+    <div class="painel-kpi-value">{{ contadores.pendencia }}</div>
+    <div class="painel-kpi-sub">{{ contadores.cancelado }} cancelada{{ 's' if contadores.cancelado != 1 }}</div>
+  </div>
+
+  <div class="painel-kpi {% if atrasadas %}painel-kpi-alert{% endif %}" style="--kpi-color:#d73519">
+    <div class="painel-kpi-label">⚠ Atrasadas &gt;48h</div>
+    <div class="painel-kpi-value">{{ atrasadas|length }}</div>
+    <div class="painel-kpi-sub">Autorizadas sem agendar</div>
+  </div>
+
+</div>
+
+<!-- Alerta: atrasadas -->
+{% if atrasadas %}
+<div class="painel-alert-box">
+  <div class="painel-alert-header">
+    <div class="painel-alert-icon">⚠</div>
+    <div>
+      <strong>{{ atrasadas|length }} autorização{{ 'ões' if atrasadas|length > 1 else '' }} aguardando agendamento há mais de 48h</strong>
+      <p>Acesse o Kanban para agendar ou verificar o motivo do atraso</p>
+    </div>
+    <a href="/autorizacoes/lista" class="auth-btn-outline" style="margin-left:auto;text-decoration:none;white-space:nowrap;flex-shrink:0">Ver no Kanban →</a>
+  </div>
+
+  <table class="data-table" style="margin-top:16px">
+    <thead>
+      <tr>
+        <th>Paciente</th>
+        <th>Convênio</th>
+        <th>Autorizado em</th>
+        <th>Atraso</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in atrasadas %}
+      <tr style="cursor:pointer" onclick="window.location='/autorizacoes/lista'">
+        <td style="font-weight:600">{{ a.paciente_nome }}</td>
+        <td style="color:var(--muted)">{{ a.convenios.nome if a.convenios else 'Particular' }}</td>
+        <td style="color:var(--muted);font-size:0.82rem">{{ a.data_autorizacao[:10] if a.data_autorizacao else '—' }}</td>
+        <td>
+          <span class="auth-badge" style="background:rgba(215,53,25,0.12);color:#b91c1c;font-weight:700"
+                data-auth-at="{{ a.data_autorizacao or '' }}">—</span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- Recentes -->
+<div class="list-card glass" style="padding:24px 28px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+    <h3 style="margin:0;font-size:1.05rem">Autorizações recentes</h3>
+    <a href="/autorizacoes/lista" class="muted-link" style="font-size:0.85rem">Ver todas →</a>
+  </div>
+
+  {% if recentes %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Paciente</th>
+        <th>Convênio</th>
+        <th>Procedimento</th>
+        <th>Status</th>
+        <th>Data</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in recentes %}
+      <tr style="cursor:pointer" onclick="window.location='/autorizacoes/lista'">
+        <td style="font-weight:600">{{ a.paciente_nome }}</td>
+        <td style="color:var(--muted)">{{ a.convenios.nome if a.convenios else 'Particular' }}</td>
+        <td style="color:var(--muted)">{{ a.procedimento or '—' }}</td>
+        <td><span class="auth-badge auth-badge-{{ a.status }}">{{ status_labels[a.status] }}</span></td>
+        <td style="color:var(--muted);font-size:0.82rem">{{ a.created_at[:10] if a.created_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="text-align:center;padding:40px 0;color:var(--muted)">
+    <div style="font-size:2.5rem;margin-bottom:12px;opacity:0.35">📄</div>
+    <p style="margin:0">Nenhuma autorização cadastrada ainda.<br>
+    <a href="/autorizacoes/lista" class="muted-link">Criar primeira →</a></p>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.querySelectorAll('[data-auth-at]').forEach(el => {
+  const authAt = el.dataset.authAt;
+  if (!authAt) return;
+  const elapsed = Date.now() - new Date(authAt).getTime();
+  const h = Math.floor(elapsed / 3600000);
+  const d = Math.floor(h / 24);
+  el.textContent = d > 0 ? `${d}d ${h % 24}h de atraso` : `${h}h de atraso`;
+});
+</script>
+{% endblock %}

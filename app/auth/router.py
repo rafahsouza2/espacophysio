@@ -15,7 +15,7 @@ router = APIRouter(tags=["auth"])
 async def login_page(request: Request):
     access_token = request.cookies.get("access_token")
     if access_token:
-        return RedirectResponse(url="/dashboard", status_code=302)
+        return RedirectResponse(url="/home", status_code=302)
     return templates.TemplateResponse("login.html", {"request": request})
 
 
@@ -36,7 +36,7 @@ async def login(
                 status_code=401,
             )
 
-        redirect = RedirectResponse(url="/dashboard", status_code=302)
+        redirect = RedirectResponse(url="/home", status_code=302)
         from app.config import settings
         is_prod = settings.app_env == "production"
         redirect.set_cookie(

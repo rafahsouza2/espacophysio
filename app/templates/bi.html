@@ -104,7 +104,7 @@ const PERIODO   = BI.periodo?.label || '';
 
     <article class="hero-card">
       <span class="hero-label">Meta Mensal</span>
-      <span class="hero-value">R$ 1M</span>
+      <span class="hero-value">R$ {{ "{:,.0f}".format(bi_data.meta).replace(",",".") }}</span>
       <span class="hero-sub">Diária: R$ {{ "{:,.0f}".format(bi_data.meta_diaria).replace(",",".") }}</span>
     </article>
 
@@ -192,7 +192,7 @@ const PERIODO   = BI.periodo?.label || '';
     </article>
     <article class="hero-card">
       <span class="hero-label">Meta Mensal</span>
-      <span class="hero-value">R$ 1M</span>
+      <span class="hero-value">R$ {{ "{:,.0f}".format(bi_data.meta).replace(",",".") }}</span>
       <span class="hero-sub">Diária: R$ {{ "{:,.0f}".format(bi_data.meta_diaria).replace(",",".") }}</span>
     </article>
     <article class="hero-card">
@@ -251,12 +251,12 @@ const PERIODO   = BI.periodo?.label || '';
       <div class="meta-big {% if bi_data.alcance_meta >= 100 %}meta-green{% elif bi_data.alcance_meta >= 80 %}meta-amber{% else %}meta-red{% endif %}">
         {{ "%.1f"|format(bi_data.alcance_meta)|replace(".",",") }}%
       </div>
-      <p class="meta-sub">R$ {{ "{:,.2f}".format(k.total_producao).replace(",","X").replace(".",",").replace("X",".") }} de R$ 1.000.000,00</p>
+      <p class="meta-sub">R$ {{ "{:,.2f}".format(k.total_producao).replace(",","X").replace(".",",").replace("X",".") }} de R$ {{ "{:,.2f}".format(bi_data.meta).replace(",","X").replace(".",",").replace("X",".") }}</p>
       <div class="pbar-wrap" style="margin:10px 0 6px">
         <div class="pbar-fill {% if bi_data.alcance_meta >= 100 %}pbar-green{% elif bi_data.alcance_meta >= 80 %}pbar-amber{% else %}pbar-red{% endif %}"
              style="width:{{ [bi_data.alcance_meta, 100]|min }}%"></div>
       </div>
-      <p class="meta-sub" style="font-size:0.75rem">Faltam R$ {{ "{:,.2f}".format([0, 1000000 - k.total_producao]|max).replace(",","X").replace(".",",").replace("X",".") }}</p>
+      <p class="meta-sub" style="font-size:0.75rem">Faltam R$ {{ "{:,.2f}".format([0, bi_data.meta - k.total_producao]|max).replace(",","X").replace(".",",").replace("X",".") }}</p>
     </article>
   </div>
 
@@ -813,11 +813,12 @@ const PERIODO   = BI.periodo?.label || '';
     <form class="param-form" id="param-form" onsubmit="saveParams(event)">
       <div class="param-row">
         <div class="param-field">
-          <label class="param-label" for="p-meta">Meta Mensal (R$)</label>
+          <label class="param-label" for="p-meta">Meta Mensal</label>
           <input
-            class="param-input" type="number" id="p-meta" name="meta_mensal"
-            min="1" step="any"
+            class="param-input" type="text" id="p-meta" name="meta_mensal"
+            inputmode="numeric" autocomplete="off"
             value="{{ "{:.0f}".format(bi_cfg.meta_mensal) }}"
+            oninput="currencyMask(this); updateParamPreview()"
             required
           />
           <span class="param-hint">Valor total de produção esperado no mês</span>
@@ -866,9 +867,39 @@ const PERIODO   = BI.periodo?.label || '';
       <li>A <strong>meta diária</strong> é calculada automaticamente: <em>meta mensal ÷ dias úteis</em></li>
       <li>O <strong>alcance da meta</strong> no Dashboard usa a meta mensal configurada aqui</li>
       <li>As barras de progresso no Diário ficam verdes quando o dia supera a meta diária</li>
-      <li>Alterar a meta não afeta relatórios já salvos — reimporte para recalcular</li>
+      <li>Ao definir meta por unidade, ela prevalece sobre a meta global quando aquela unidade está selecionada</li>
     </ul>
   </article>
+
+  {% if lista_unidades %}
+  <article class="dashboard-card glass">
+    <h3>🏢 Meta por Unidade</h3>
+    <p style="color:var(--muted);font-size:0.88rem;margin:0 0 22px">
+      Define metas mensais individuais. Ao filtrar por unidade, o cálculo de alcance usa a meta da unidade selecionada.
+      Deixe em branco para usar a meta global.
+    </p>
+
+    <div class="param-row" style="flex-wrap:wrap">
+      {% set mpu = bi_cfg.metas_por_unidade if bi_cfg.metas_por_unidade else {} %}
+      {% for un in lista_unidades %}
+      <div class="param-field">
+        <label class="param-label">{{ un }}</label>
+        <input class="param-input param-unit-input" type="text"
+               data-unit="{{ un }}" inputmode="numeric" autocomplete="off"
+               placeholder="Meta global (R$ {{ '{:,.0f}'.format(bi_cfg.meta_mensal).replace(',','.') }})"
+               value="{{ '{:.0f}'.format(mpu[un]) if un in mpu else '' }}"
+               oninput="currencyMask(this)">
+        <span class="param-hint">Meta mensal desta unidade</span>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="param-actions">
+      <button type="button" class="btn-primary" onclick="saveUnitMetas()">Salvar metas por unidade</button>
+      <span class="param-feedback" id="unit-meta-feedback"></span>
+    </div>
+  </article>
+  {% endif %}
 
 </section>
 {% endif %}
@@ -1112,6 +1143,8 @@ const TAB_INITS = {
   'tab-unidades':     initUnidades,
 };
 
+const _biActions = document.querySelector('.bi-period-actions');
+
 document.querySelectorAll('#bi-sidebar-tabs .bi-sidebar-tab').forEach(btn => {
   btn.addEventListener('click', () => {
     const target = btn.dataset.target;
@@ -1121,14 +1154,23 @@ document.querySelectorAll('#bi-sidebar-tabs .bi-sidebar-tab').forEach(btn => {
     btn.classList.add('active');
     const panel = document.getElementById(target);
     if (panel) panel.classList.add('active');
+    if (_biActions) _biActions.style.display = target === 'tab-parametros' ? 'none' : '';
     if (TAB_INITS[target]) {
       try { TAB_INITS[target](); } catch(e) { console.error('init', target, e); }
     }
   });
 });
 
-/* ─── Iniciar dashboard ─── */
-try { initDashboard(); } catch(e) { console.error('initDashboard:', e); }
+/* ─── Restaurar aba da URL (?tab=...) ─── */
+(function() {
+  const urlTab = new URLSearchParams(location.search).get('tab');
+  if (urlTab) {
+    const btn = document.querySelector(`[data-target="${urlTab}"]`);
+    if (btn) { btn.click(); return; }
+  }
+  try { initDashboard(); } catch(e) { console.error('initDashboard:', e); }
+  if (_biActions) _biActions.style.display = '';
+})();
 
 {% endif %}{# bi_data #}
 
@@ -1186,14 +1228,16 @@ async function doDeleteReport(periodKey) {
 }
 {% endif %}
 
-/* ─── Filtro de período + unidade ─── */
+/* ─── Filtro de período + unidade (preserva aba ativa) ─── */
 function applyFilters() {
   const period = document.getElementById('period-select')?.value || '';
   const unit   = document.getElementById('unit-select')?.value   || '';
+  const tab    = document.querySelector('#bi-sidebar-tabs .bi-sidebar-tab.active')?.dataset.target || '';
   let url = '/bi';
   const params = [];
   if (period) params.push('period=' + encodeURIComponent(period));
   if (unit)   params.push('unit='   + encodeURIComponent(unit));
+  if (tab && tab !== 'tab-dashboard') params.push('tab=' + encodeURIComponent(tab));
   if (params.length) url += '?' + params.join('&');
   location.href = url;
 }
@@ -1228,12 +1272,36 @@ function initUnidades() {
 
 /* ─── Parâmetros ─── */
 {% if user.role in ['admin', 'coordenacao'] %}
+
+/* Utilitários BRL */
+function parseBRL(str) {
+  return parseFloat(String(str || '0').replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+}
+function fmtBRL(n) {
+  if (!n || n <= 0) return '';
+  return 'R$ ' + Math.round(n).toLocaleString('pt-BR');
+}
+function currencyMask(el) {
+  const digits = el.value.replace(/\D/g, '');
+  const num    = parseInt(digits, 10) || 0;
+  el.value     = num > 0 ? fmtBRL(num) : '';
+  // cursor sempre ao final
+  const len = el.value.length;
+  el.setSelectionRange(len, len);
+}
+
+/* Formata os inputs de moeda ao carregar */
+document.querySelectorAll('#p-meta, .param-unit-input').forEach(el => {
+  const raw = parseBRL(el.value);
+  if (raw > 0) el.value = fmtBRL(raw);
+});
+
 function updateParamPreview() {
-  const meta = parseFloat(document.getElementById('p-meta')?.value) || 0;
+  const meta = parseBRL(document.getElementById('p-meta')?.value);
   const dias = parseFloat(document.getElementById('p-dias')?.value) || 1;
   const metaDia = meta / dias;
   const fmt = v => 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
-  const el = id => document.getElementById(id);
+  const el  = id => document.getElementById(id);
   if (el('prev-meta-dia')) el('prev-meta-dia').textContent = fmt(metaDia);
   if (el('prev-meta-mes')) el('prev-meta-mes').textContent = fmt(meta);
   if (el('prev-dias'))     el('prev-dias').textContent = Math.round(dias);
@@ -1248,7 +1316,9 @@ async function saveParams(e) {
   const fb  = document.getElementById('param-feedback');
   btn.disabled = true;
   btn.textContent = 'Salvando…';
-  const fd = new FormData(e.target);
+  const fd = new FormData();
+  fd.append('meta_mensal',    parseBRL(document.getElementById('p-meta')?.value));
+  fd.append('dias_uteis_mes', parseFloat(document.getElementById('p-dias')?.value) || 22);
   try {
     const r = await fetch('/bi/parametros', { method: 'POST', body: fd });
     const d = await r.json();
@@ -1266,6 +1336,34 @@ async function saveParams(e) {
   }
   btn.disabled = false;
   btn.textContent = 'Salvar parâmetros';
+  setTimeout(() => { fb.textContent = ''; }, 4000);
+}
+
+async function saveUnitMetas() {
+  const fb  = document.getElementById('unit-meta-feedback');
+  const metas = {};
+  document.querySelectorAll('.param-unit-input').forEach(inp => {
+    const unit = inp.dataset.unit;
+    const val  = parseBRL(inp.value);
+    if (unit && val > 0) metas[unit] = val;
+  });
+  console.log('[BI] Salvando metas por unidade:', metas);
+  const fd = new FormData();
+  fd.append('metas_json', JSON.stringify(metas));
+  try {
+    const r = await fetch('/bi/metas-unidades', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.ok) {
+      fb.textContent = d.aviso ? '⚠ Salvo com aviso' : '✅ Metas por unidade salvas';
+      fb.style.color = d.aviso ? '#c47b00' : '#3d6b1a';
+    } else {
+      fb.textContent = '❌ ' + (d.erro || 'Erro');
+      fb.style.color = '#b83030';
+    }
+  } catch(_) {
+    fb.textContent = '❌ Erro de conexão.';
+    fb.style.color = '#b83030';
+  }
   setTimeout(() => { fb.textContent = ''; }, 4000);
 }
 {% endif %}

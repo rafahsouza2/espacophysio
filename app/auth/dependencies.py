@@ -52,12 +52,17 @@ async def get_current_user(request: Request) -> dict:
         user = user_resp.user
         profile = _fetch_profile(user.id, user.email)
 
+        # modulos_permitidos: arquivo local (garantido) > profile table (se coluna existir)
+        from app.modules.usuarios.permissions import get_permission
+        modulos = get_permission(user.id) or profile.get("modulos_permitidos") or None
+
         return {
-            "id": user.id,
-            "email": user.email,
-            "full_name": profile.get("full_name", user.email),
-            "role": profile.get("role", "recepcao"),
-            "active": profile.get("active", True),
+            "id":                 user.id,
+            "email":              user.email,
+            "full_name":          profile.get("full_name", user.email),
+            "role":               profile.get("role", "recepcao"),
+            "active":             profile.get("active", True),
+            "modulos_permitidos": modulos,
         }
     except HTTPException:
         raise
@@ -74,6 +79,20 @@ async def require_auth(request: Request) -> dict:
         response.delete_cookie("access_token")
         response.delete_cookie("refresh_token")
         return response
+
+
+def check_module_access(user: dict, module: str) -> RedirectResponse | None:
+    """Retorna redirect se o usuário não tiver acesso ao módulo; None se tiver."""
+    if user.get("role") in ("admin", "coordenacao"):
+        return None
+    modulos = user.get("modulos_permitidos")
+    if not modulos:
+        return None  # sem restrição → acesso por papel
+    allowed = [m.strip() for m in modulos.split(",") if m.strip()]
+    if module in allowed:
+        return None
+    first = allowed[0] if allowed else "autorizacoes"
+    return RedirectResponse(url=f"/{first}", status_code=302)
 
 
 def require_role(allowed_roles: list[str]):

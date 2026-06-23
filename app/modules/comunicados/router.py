@@ -3,7 +3,7 @@ from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app.auth.dependencies import require_auth
+from app.auth.dependencies import require_auth, check_module_access
 from app.database import get_supabase
 
 TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
@@ -17,6 +17,9 @@ async def comunicados_index(request: Request):
     user = await require_auth(request)
     if isinstance(user, RedirectResponse):
         return user
+    redir = check_module_access(user, "comunicados")
+    if redir:
+        return redir
 
     supabase = get_supabase()
     try:

@@ -1,0 +1,422 @@
+{% extends "base.html" %}
+{% block title %}Autorizações{% endblock %}
+
+{% block content %}
+
+<!-- ── Topbar ── -->
+<header class="topbar glass">
+  <div>
+    <div class="eyebrow">Clínica · Convênios</div>
+    <h1 style="margin:0">Autorizações</h1>
+    <p>Controle de autorizações de atendimento por convênio</p>
+  </div>
+  <div class="topbar-actions">
+    {% if is_admin %}
+    <button class="auth-btn-outline" onclick="openModal('modal-convenios')" title="Gerenciar convênios">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+      Convênios
+    </button>
+    {% endif %}
+    {% if can_write %}
+    <button class="auth-btn-primary" onclick="openModal('modal-novo')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Nova Autorização
+    </button>
+    {% endif %}
+  </div>
+</header>
+
+<!-- ── Split view ── -->
+<div class="auth-split">
+
+  <!-- LEFT: list panel -->
+  <div class="auth-list-panel glass">
+
+    <!-- Status filter chips -->
+    <div class="auth-filter-chips">
+      <button class="auth-chip {% if not current_status %}auth-chip-active{% endif %}"
+              data-status="" onclick="filterStatus('')">
+        Todas <span class="auth-chip-count">{{ contadores.values()|sum }}</span>
+      </button>
+      {% for s in status_order %}
+      <button class="auth-chip auth-chip-{{ s }} {% if current_status == s %}auth-chip-active{% endif %}"
+              data-status="{{ s }}" onclick="filterStatus('{{ s }}')">
+        {{ status_labels[s] }}<span class="auth-chip-count">{{ contadores[s] }}</span>
+      </button>
+      {% endfor %}
+    </div>
+
+    <!-- Search -->
+    <div class="auth-search-wrap">
+      <svg class="auth-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" class="auth-search-input" id="search-input"
+             placeholder="Buscar paciente..." value="{{ busca }}"
+             oninput="onSearch(this.value)">
+    </div>
+
+    <!-- List -->
+    <div class="auth-list" id="auth-list">
+      {% for a in autorizacoes %}
+      <div class="auth-item" id="item-{{ a.id }}" onclick="selectAuth('{{ a.id }}')">
+        <div class="auth-item-row">
+          <span class="auth-item-name">{{ a.paciente_nome }}</span>
+          <span class="auth-badge auth-badge-{{ a.status }}">{{ status_labels[a.status] }}</span>
+        </div>
+        <div class="auth-item-meta">
+          <span>{{ a.convenios.nome if a.convenios else 'Particular' }}</span>
+          {% if a.procedimento %}<span class="auth-dot">·</span><span>{{ a.procedimento }}</span>{% endif %}
+        </div>
+      </div>
+      {% else %}
+      <div class="auth-empty">
+        <div class="auth-empty-icon">📋</div>
+        <p>Nenhuma autorização encontrada.</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- RIGHT: detail panel -->
+  <div class="auth-detail-panel glass" id="auth-detail-panel">
+    <div id="auth-detail-content">
+      <div class="auth-detail-empty">
+        <div class="auth-detail-empty-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        </div>
+        <p>Selecione uma autorização<br>para ver os detalhes</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Modal: Nova Autorização ── -->
+<div class="modal-overlay" id="modal-novo" style="display:none"
+     onclick="if(event.target===this)closeModal('modal-novo')">
+  <div class="modal-card glass">
+    <div class="auth-modal-header">
+      <div>
+        <div class="eyebrow" style="margin-bottom:8px">Nova</div>
+        <h3>Criar Autorização</h3>
+      </div>
+      <button class="auth-modal-close" onclick="closeModal('modal-novo')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <form id="form-novo" onsubmit="submitNovo(event)">
+      <div class="auth-form-grid">
+        <div class="auth-field auth-field-full">
+          <label class="auth-label">Paciente *</label>
+          <input class="auth-input" name="paciente_nome" required
+                 placeholder="Nome completo do paciente">
+        </div>
+        <div class="auth-field">
+          <label class="auth-label">Convênio</label>
+          <select class="auth-select" name="convenio_id">
+            <option value="">Particular / Sem convênio</option>
+            {% for c in convenios %}
+            <option value="{{ c.id }}">{{ c.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="auth-field">
+          <label class="auth-label">Procedimento</label>
+          <input class="auth-input" name="procedimento"
+                 placeholder="Ex: Fisioterapia">
+        </div>
+        <div class="auth-field">
+          <label class="auth-label">Nº Guia</label>
+          <input class="auth-input" name="num_guia"
+                 placeholder="Número da guia">
+        </div>
+        <div class="auth-field">
+          <label class="auth-label">Data de Solicitação</label>
+          <input class="auth-input" name="data_solicitacao" type="date">
+        </div>
+        <div class="auth-field auth-field-full">
+          <label class="auth-label">Observações</label>
+          <textarea class="auth-input" name="observacoes"
+                    style="min-height:72px;resize:vertical"
+                    placeholder="Observações adicionais..."></textarea>
+        </div>
+      </div>
+
+      <div class="auth-modal-footer">
+        <button type="button" class="auth-btn-ghost" onclick="closeModal('modal-novo')">Cancelar</button>
+        <button type="submit" class="auth-btn-primary" id="btn-salvar-novo">Criar Autorização</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Modal: Convênios ── -->
+{% if is_admin %}
+<div class="modal-overlay" id="modal-convenios" style="display:none"
+     onclick="if(event.target===this)closeModal('modal-convenios')">
+  <div class="modal-card glass" style="max-width:480px">
+    <div class="auth-modal-header">
+      <div>
+        <div class="eyebrow" style="margin-bottom:8px">Configurações</div>
+        <h3>Convênios</h3>
+      </div>
+      <button class="auth-modal-close" onclick="closeModal('modal-convenios')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div id="lista-convenios" style="margin-bottom:20px;display:grid;gap:8px">
+      {% for c in convenios %}
+      <div class="auth-conv-item" id="conv-{{ c.id }}">
+        <span>{{ c.nome }}</span>
+        <button onclick="deleteConvenio('{{ c.id }}')" class="auth-btn-danger-sm">Remover</button>
+      </div>
+      {% else %}
+      <p style="color:var(--muted);font-size:0.9rem">Nenhum convênio cadastrado.</p>
+      {% endfor %}
+    </div>
+
+    <form id="form-convenio" onsubmit="submitConvenio(event)">
+      <div style="font-size:0.78rem;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:10px">
+        Adicionar convênio
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end">
+        <div class="auth-field">
+          <label class="auth-label">Nome do plano</label>
+          <input class="auth-input" name="nome" required placeholder="Ex: Unimed">
+        </div>
+        <button type="submit" class="auth-btn-primary" style="height:42px;padding:0 18px">Adicionar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const STATUS_LABELS = {{ status_labels | tojson }};
+const STATUS_ORDER  = {{ status_order | tojson }};
+
+let currentStatus   = {{ current_status | tojson }};
+let currentQ        = {{ busca | tojson }};
+let currentSelected = null;
+
+// ── Filter chips ────────────────────────────────────────────────────────────
+
+function filterStatus(status) {
+  currentStatus = status;
+  document.querySelectorAll('.auth-chip').forEach(el => {
+    el.classList.toggle('auth-chip-active', el.dataset.status === status);
+  });
+  loadList();
+}
+
+// ── Search ─────────────────────────────────────────────────────────────────
+
+let _searchTimer;
+function onSearch(val) {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => { currentQ = val; loadList(); }, 320);
+}
+
+// ── AJAX list ──────────────────────────────────────────────────────────────
+
+async function loadList() {
+  const params = new URLSearchParams();
+  if (currentStatus) params.set('status', currentStatus);
+  if (currentQ)      params.set('q', currentQ);
+  try {
+    const res  = await fetch('/autorizacoes/api/lista?' + params);
+    const data = await res.json();
+    renderList(data);
+  } catch(e) {}
+}
+
+function renderList(lista) {
+  const el = document.getElementById('auth-list');
+  if (!lista.length) {
+    el.innerHTML = '<div class="auth-empty"><div class="auth-empty-icon">📋</div><p>Nenhuma autorização encontrada.</p></div>';
+    return;
+  }
+  el.innerHTML = lista.map(a => `
+    <div class="auth-item${a.id === currentSelected ? ' active' : ''}"
+         id="item-${a.id}" onclick="selectAuth('${a.id}')">
+      <div class="auth-item-row">
+        <span class="auth-item-name">${esc(a.paciente_nome)}</span>
+        <span class="auth-badge auth-badge-${a.status}">${STATUS_LABELS[a.status] || a.status}</span>
+      </div>
+      <div class="auth-item-meta">
+        <span>${a.convenios ? esc(a.convenios.nome) : 'Particular'}</span>
+        ${a.procedimento ? `<span class="auth-dot">·</span><span>${esc(a.procedimento)}</span>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Select / detail panel ──────────────────────────────────────────────────
+
+async function selectAuth(id) {
+  currentSelected = id;
+  document.querySelectorAll('.auth-item').forEach(el => el.classList.remove('active'));
+  document.getElementById('item-' + id)?.classList.add('active');
+
+  const content = document.getElementById('auth-detail-content');
+  content.innerHTML = '<div class="auth-detail-empty"><div style="font-size:2rem;opacity:0.3;animation:spin 1s linear infinite">⊙</div><p>Carregando...</p></div>';
+
+  try {
+    const res  = await fetch('/autorizacoes/detalhe/' + id);
+    content.innerHTML = await res.text();
+  } catch(e) {
+    content.innerHTML = '<div class="auth-detail-empty"><p style="color:var(--accent)">Erro ao carregar.</p></div>';
+  }
+}
+
+// ── Status change (called from detalhe fragment) ───────────────────────────
+
+async function changeStatus(authId, newStatus) {
+  const fd = new FormData();
+  fd.append('novo_status', newStatus);
+  try {
+    const res  = await fetch('/autorizacoes/' + authId + '/status', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) return;
+
+    // Reload detail fragment
+    const content = document.getElementById('auth-detail-content');
+    const r = await fetch('/autorizacoes/detalhe/' + authId);
+    content.innerHTML = await r.text();
+
+    // Update badge in list
+    const badge = document.querySelector('#item-' + authId + ' .auth-badge');
+    if (badge) {
+      badge.className = 'auth-badge auth-badge-' + newStatus;
+      badge.textContent = STATUS_LABELS[newStatus] || newStatus;
+    }
+  } catch(e) {}
+}
+
+// ── Save edit (called from detalhe fragment) ───────────────────────────────
+
+async function saveEdit(authId) {
+  const form = document.getElementById('detail-form-' + authId);
+  if (!form) return;
+  const fd  = new FormData(form);
+  const btn = form.querySelector('[data-save-btn]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+
+  try {
+    const res  = await fetch('/autorizacoes/' + authId + '/editar', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+      const nameEl = document.querySelector('#item-' + authId + ' .auth-item-name');
+      if (nameEl) nameEl.textContent = fd.get('paciente_nome');
+      if (btn) {
+        btn.textContent = '✓ Salvo';
+        btn.style.cssText = 'background:rgba(49,166,106,0.15);color:#1a6b42;border-color:#31a66a';
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = 'Salvar alterações';
+          btn.style.cssText = '';
+        }, 2200);
+      }
+    }
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Salvar alterações'; }
+  }
+}
+
+// ── Delete (called from detalhe fragment) ─────────────────────────────────
+
+async function deleteAuth(authId) {
+  if (!confirm('Remover esta autorização permanentemente?')) return;
+  try {
+    const res  = await fetch('/autorizacoes/' + authId, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('item-' + authId)?.remove();
+      document.getElementById('auth-detail-content').innerHTML =
+        '<div class="auth-detail-empty"><div class="auth-detail-empty-icon" style="opacity:0.3">🗑️</div><p>Removida com sucesso.</p></div>';
+      currentSelected = null;
+    }
+  } catch(e) {}
+}
+
+// ── Nova Autorização modal ─────────────────────────────────────────────────
+
+async function submitNovo(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btn-salvar-novo');
+  btn.disabled = true;
+  btn.textContent = 'Criando...';
+
+  const fd = new FormData(document.getElementById('form-novo'));
+  try {
+    const res  = await fetch('/autorizacoes/novo', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+      closeModal('modal-novo');
+      document.getElementById('form-novo').reset();
+      await loadList();
+      setTimeout(() => selectAuth(data.id), 80);
+    } else {
+      alert(data.erro || 'Erro ao criar autorização');
+    }
+  } catch(e) {
+    alert('Erro de conexão');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Criar Autorização';
+  }
+}
+
+// ── Convênios ──────────────────────────────────────────────────────────────
+
+async function submitConvenio(e) {
+  e.preventDefault();
+  const fd = new FormData(document.getElementById('form-convenio'));
+  const res  = await fetch('/autorizacoes/convenios', { method: 'POST', body: fd });
+  const data = await res.json();
+  if (data.ok && data.convenio) {
+    const c = data.convenio;
+    document.getElementById('lista-convenios').insertAdjacentHTML('beforeend', `
+      <div class="auth-conv-item" id="conv-${c.id}">
+        <span>${esc(c.nome)}</span>
+        <button onclick="deleteConvenio('${c.id}')" class="auth-btn-danger-sm">Remover</button>
+      </div>
+    `);
+    // Add to dropdowns
+    const opt = `<option value="${c.id}">${esc(c.nome)}</option>`;
+    document.querySelectorAll('select[name="convenio_id"]').forEach(sel => {
+      sel.insertAdjacentHTML('beforeend', opt);
+    });
+    document.getElementById('form-convenio').reset();
+  }
+}
+
+async function deleteConvenio(id) {
+  if (!confirm('Remover este convênio?')) return;
+  const res  = await fetch('/autorizacoes/convenios/' + id, { method: 'DELETE' });
+  const data = await res.json();
+  if (data.ok) {
+    document.getElementById('conv-' + id)?.remove();
+    document.querySelectorAll(`select[name="convenio_id"] option[value="${id}"]`).forEach(o => o.remove());
+  }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function openModal(id)  { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+</script>
+
+<style>
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+</style>
+{% endblock %}

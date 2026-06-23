@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from app.auth.dependencies import require_auth
+from app.auth.dependencies import require_auth, check_module_access
 from app.modules.bi.parser import parse_xls, load_saved, clear_saved, list_reports
 from app.modules.bi.config import get_bi_config, save_bi_config, recalculate_all_reports
 
@@ -68,6 +68,9 @@ async def bi_dashboard(
 ):
     if isinstance(user, RedirectResponse):
         return user
+    redir = check_module_access(user, "bi")
+    if redir:
+        return redir
 
     bi_data_raw = _backfill_bi(load_saved(period_key=period))
     reports     = list_reports()
@@ -80,31 +83,50 @@ async def bi_dashboard(
 
     if bi_data_raw:
         lista_unidades = bi_data_raw.get("lista_unidades", [])
+
+    # Fallback: usa as unidades das metas já salvas para não esconder a seção de parâmetros
+    metas_salvas = bi_cfg.get("metas_por_unidade", {})
+    for k in metas_salvas:
+        if k not in lista_unidades:
+            lista_unidades.append(k)
         if unit and unit in bi_data_raw.get("por_unidade", {}):
-            unit_data    = bi_data_raw["por_unidade"][unit]
-            # Mantém contexto global (periodo, period_key, lista_unidades, etc.)
-            # mas substitui KPIs/charts pela unidade selecionada
+            unit_data = bi_data_raw["por_unidade"][unit]
             bi_data = {
                 **bi_data_raw,
                 **unit_data,
-                "periodo":         bi_data_raw["periodo"],
-                "period_key":      bi_data_raw["period_key"],
-                "lista_unidades":  lista_unidades,
-                "por_unidade":     {},           # não repassar (pesado)
+                "periodo":          bi_data_raw["periodo"],
+                "period_key":       bi_data_raw["period_key"],
+                "lista_unidades":   lista_unidades,
+                "por_unidade":      {},
                 "unidades_summary": bi_data_raw.get("unidades_summary", []),
             }
             current_unit = unit
 
+            # Aplica meta específica da unidade (se configurada)
+            metas_un = bi_cfg.get("metas_por_unidade", {})
+            if unit in metas_un and metas_un[unit] > 0:
+                meta_u   = float(metas_un[unit])
+                dias_u   = float(bi_cfg.get("dias_uteis_mes", 22))
+                prod_u   = float(bi_data.get("kpis", {}).get("total_producao", 0))
+                meta_dia = meta_u / dias_u if dias_u else meta_u
+                bi_data["meta"]         = meta_u
+                bi_data["meta_diaria"]  = round(meta_dia, 2)
+                bi_data["alcance_meta"] = round(prod_u / meta_u * 100, 1) if meta_u else 0.0
+                evo  = bi_data.get("evolucao_diaria", {})
+                prods = evo.get("prod", [])
+                if prods:
+                    evo["meta_pct"] = [round(p / meta_dia * 100, 1) if meta_dia else 0.0 for p in prods]
+
     return templates.TemplateResponse("bi.html", {
-        "request":         request,
-        "user":            user,
-        "active_menu":     "bi",
-        "bi_data":         bi_data,
-        "reports":         reports,
-        "current_period":  period,
-        "current_unit":    current_unit,
-        "lista_unidades":  lista_unidades,
-        "bi_cfg":          bi_cfg,
+        "request":        request,
+        "user":           user,
+        "active_menu":    "bi",
+        "bi_data":        bi_data,
+        "reports":        reports,
+        "current_period": period,
+        "current_unit":   current_unit,
+        "lista_unidades": lista_unidades,
+        "bi_cfg":         bi_cfg,
     })
 
 
@@ -160,6 +182,31 @@ async def bi_delete_report(period_key: str, request: Request, user=Depends(requi
 
     clear_saved(period_key=period_key)
     return JSONResponse({"ok": True})
+
+
+@router.post("/bi/metas-unidades")
+async def bi_save_metas_unidades(
+    request: Request,
+    metas_json: str = Form(...),
+    user=Depends(require_auth),
+):
+    if isinstance(user, RedirectResponse):
+        return user
+    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
+    if role not in ("admin", "coordenacao"):
+        return JSONResponse({"ok": False, "erro": "Sem permissão."}, status_code=403)
+
+    import json as _json
+    try:
+        metas = _json.loads(metas_json)
+        if not isinstance(metas, dict):
+            raise ValueError("Esperado objeto JSON")
+        metas = {k: float(v) for k, v in metas.items() if v}
+    except Exception as e:
+        return JSONResponse({"ok": False, "erro": f"Dados inválidos: {e}"}, status_code=422)
+
+    err = save_bi_config({"metas_por_unidade": metas})
+    return JSONResponse({"ok": True, "aviso": err})
 
 
 @router.post("/bi/parametros")
