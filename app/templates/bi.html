@@ -140,6 +140,21 @@ const PERIODO   = BI.periodo?.label || '';
       <span class="hero-sub">R$ {{ "{:,.2f}".format(k.conv_producao).replace(",","X").replace(".",",").replace("X",".") }}</span>
     </article>
 
+    <article class="hero-card {% if k.pct_faturado >= 80 %}hero-green{% elif k.pct_faturado >= 50 %}hero-amber{% else %}hero-red{% endif %}">
+      <span class="hero-label">Faturamento</span>
+      <span class="hero-value">R$ {{ "{:,.2f}".format(k.total_faturamento).replace(",","X").replace(".",",").replace("X",".") }}</span>
+      <span class="hero-badge {% if k.pct_faturado >= 80 %}badge-up{% elif k.pct_faturado >= 50 %}badge-amb{% else %}badge-down{% endif %}">
+        {{ "%.1f"|format(k.pct_faturado)|replace(".",",") }}% da produção
+      </span>
+      <span class="hero-sub">{{ k.total_faturado_cnt }} atend. faturados</span>
+    </article>
+
+    <article class="hero-card {% if k.a_faturar == 0 %}hero-green{% elif k.a_faturar < k.total_producao * 0.3 %}hero-amber{% else %}hero-red{% endif %}">
+      <span class="hero-label">A Faturar</span>
+      <span class="hero-value">R$ {{ "{:,.2f}".format(k.a_faturar).replace(",","X").replace(".",",").replace("X",".") }}</span>
+      <span class="hero-sub">convênios sem protocolo</span>
+    </article>
+
   </div>
 
   {# Gráficos 2-col #}
@@ -220,6 +235,18 @@ const PERIODO   = BI.periodo?.label || '';
       <span class="hero-label">Melhor Dia</span>
       <span class="hero-value" style="font-size:1.6rem">{{ bi_data.melhor_dia }}</span>
       <span class="hero-sub">R$ {{ "{:,.2f}".format(bi_data.melhor_dia_prod).replace(",","X").replace(".",",").replace("X",".") }}</span>
+    </article>
+    <article class="hero-card {% if k.pct_faturado >= 80 %}hero-green{% elif k.pct_faturado >= 50 %}hero-amber{% else %}hero-red{% endif %}">
+      <span class="hero-label">Faturamento</span>
+      <span class="hero-value">R$ {{ "{:,.2f}".format(k.total_faturamento).replace(",","X").replace(".",",").replace("X",".") }}</span>
+      <span class="hero-badge {% if k.pct_faturado >= 80 %}badge-up{% elif k.pct_faturado >= 50 %}badge-amb{% else %}badge-down{% endif %}">
+        {{ "%.1f"|format(k.pct_faturado)|replace(".",",") }}% da produção
+      </span>
+    </article>
+    <article class="hero-card {% if k.a_faturar == 0 %}hero-green{% elif k.a_faturar < k.total_producao * 0.3 %}hero-amber{% else %}hero-red{% endif %}">
+      <span class="hero-label">A Faturar</span>
+      <span class="hero-value">R$ {{ "{:,.2f}".format(k.a_faturar).replace(",","X").replace(".",",").replace("X",".") }}</span>
+      <span class="hero-sub">convênios sem protocolo</span>
     </article>
   </div>
 
@@ -387,16 +414,21 @@ const PERIODO   = BI.periodo?.label || '';
             <th class="right">Finalizados</th>
             <th class="right">Pendente</th>
             <th class="right">Produção</th>
+            <th class="right">Faturado</th>
+            <th class="right">A Faturar</th>
+            <th class="right">% Fat.</th>
             <th class="right">Taxa Final.</th>
-            <th class="right">Ticket</th>
           </tr>
         </thead>
         <tbody>
-          {% set tot_total = namespace(n=0) %}{% set tot_final = namespace(n=0) %}{% set tot_prod = namespace(n=0.0) %}
+          {% set tot_total = namespace(n=0) %}{% set tot_final = namespace(n=0) %}{% set tot_prod = namespace(n=0.0) %}{% set tot_fat = namespace(n=0.0) %}{% set tot_afat = namespace(n=0.0) %}
           {% for p in bi_data.profissionais %}
           {% set tot_total.n = tot_total.n + p.total %}
           {% set tot_final.n = tot_final.n + p.final %}
-          {% set tot_prod.n = tot_prod.n + p.prod %}
+          {% set tot_prod.n  = tot_prod.n  + p.prod %}
+          {% set tot_fat.n   = tot_fat.n   + (p.faturado | default(0)) %}
+          {% set tot_afat.n  = tot_afat.n  + (p.a_faturar | default(0)) %}
+          {% set pf = p.pct_faturado | default(0) %}
           <tr>
             <td class="center muted" style="font-size:0.8rem">{{ loop.index }}</td>
             <td>{{ p.nome }}</td>
@@ -404,20 +436,25 @@ const PERIODO   = BI.periodo?.label || '';
             <td class="right ok">{{ "{:,}".format(p.final).replace(",",".") }}</td>
             <td class="right muted">{{ "{:,}".format(p.marcado).replace(",",".") }}</td>
             <td class="right">{% if p.prod > 0 %}R$ {{ "{:,.2f}".format(p.prod).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</td>
+            <td class="right ok">{% if (p.faturado | default(0)) > 0 %}R$ {{ "{:,.2f}".format(p.faturado).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</td>
+            <td class="right {% if (p.a_faturar | default(0)) > 0 %}warn{% endif %}">{% if (p.a_faturar | default(0)) > 0 %}R$ {{ "{:,.2f}".format(p.a_faturar).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</td>
+            <td class="right {% if pf >= 80 %}ok{% elif pf >= 50 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(pf)|replace(".",",") }}%</td>
             <td class="right {% if p.taxa_final >= 70 %}ok{% elif p.taxa_final >= 50 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(p.taxa_final)|replace(".",",") }}%</td>
-            <td class="right">{% if p.final > 0 and p.prod > 0 %}R$ {{ "{:,.2f}".format(p.prod / p.final).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</td>
           </tr>
           {% endfor %}
         </tbody>
         <tfoot>
+          {% set tot_pf = (tot_fat.n / tot_prod.n * 100) if tot_prod.n else 0 %}
           <tr>
             <td></td><td><strong>TOTAL</strong></td>
             <td class="right"><strong>{{ "{:,}".format(tot_total.n).replace(",",".") }}</strong></td>
             <td class="right ok"><strong>{{ "{:,}".format(tot_final.n).replace(",",".") }}</strong></td>
             <td class="right muted"><strong>{{ "{:,}".format(tot_total.n - tot_final.n).replace(",",".") }}</strong></td>
             <td class="right"><strong>{% if tot_prod.n > 0 %}R$ {{ "{:,.2f}".format(tot_prod.n).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</strong></td>
+            <td class="right ok"><strong>{% if tot_fat.n > 0 %}R$ {{ "{:,.2f}".format(tot_fat.n).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</strong></td>
+            <td class="right warn"><strong>{% if tot_afat.n > 0 %}R$ {{ "{:,.2f}".format(tot_afat.n).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</strong></td>
+            <td class="right {% if tot_pf >= 80 %}ok{% elif tot_pf >= 50 %}mid{% else %}warn{% endif %}"><strong>{{ "%.1f"|format(tot_pf)|replace(".",",") }}%</strong></td>
             <td class="right"><strong>{% if tot_total.n > 0 %}{{ "%.1f"|format(tot_final.n / tot_total.n * 100)|replace(".",",") }}%{% else %}—{% endif %}</strong></td>
-            <td class="right"><strong>{% if tot_final.n > 0 and tot_prod.n > 0 %}R$ {{ "{:,.2f}".format(tot_prod.n / tot_final.n).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</strong></td>
           </tr>
         </tfoot>
       </table>
@@ -448,28 +485,38 @@ const PERIODO   = BI.periodo?.label || '';
     <div style="overflow-x:auto">
       <table class="bi-table bi-table-green">
         <thead>
-          <tr><th class="center" style="width:36px">#</th><th>Convênio</th><th class="right">Finalizados</th><th class="right">Produção</th><th class="right">% Total</th><th class="right">Ticket Médio</th></tr>
+          <tr><th class="center" style="width:36px">#</th><th>Convênio</th><th class="right">Finalizados</th><th class="right">Produção</th><th class="right">Faturado</th><th class="right">A Faturar</th><th class="right">% Fat.</th><th class="right">% Total</th><th class="right">Ticket Médio</th></tr>
         </thead>
         <tbody>
-          {% set tot_conv_final = namespace(n=0) %}{% set tot_conv_prod = namespace(n=0.0) %}
+          {% set tot_conv_final = namespace(n=0) %}{% set tot_conv_prod = namespace(n=0.0) %}{% set tot_conv_fat = namespace(n=0.0) %}{% set tot_conv_afat = namespace(n=0.0) %}
           {% for c in bi_data.convenios %}
           {% set tot_conv_final.n = tot_conv_final.n + c.final %}
-          {% set tot_conv_prod.n = tot_conv_prod.n + c.producao %}
+          {% set tot_conv_prod.n  = tot_conv_prod.n  + c.producao %}
+          {% set tot_conv_fat.n   = tot_conv_fat.n   + (c.faturado | default(0)) %}
+          {% set tot_conv_afat.n  = tot_conv_afat.n  + (c.a_faturar | default(0)) %}
+          {% set cpf = c.pct_faturado | default(0) %}
           <tr>
             <td class="center muted" style="font-size:0.8rem">{{ loop.index }}</td>
             <td>{{ c.nome }}</td>
             <td class="right ok">{{ "{:,}".format(c.final).replace(",",".") }}</td>
             <td class="right">{% if c.producao > 0 %}R$ {{ "{:,.2f}".format(c.producao).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</td>
+            <td class="right ok">{% if (c.faturado | default(0)) > 0 %}R$ {{ "{:,.2f}".format(c.faturado).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</td>
+            <td class="right {% if (c.a_faturar | default(0)) > 0 %}warn{% endif %}">{% if (c.a_faturar | default(0)) > 0 %}R$ {{ "{:,.2f}".format(c.a_faturar).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</td>
+            <td class="right {% if cpf >= 100 %}ok{% elif cpf >= 50 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(cpf)|replace(".",",") }}%</td>
             <td class="right mid">{{ "%.1f"|format(c.pct)|replace(".",",") }}%</td>
             <td class="right">{% if c.ticket > 0 %}R$ {{ "{:,.2f}".format(c.ticket).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</td>
           </tr>
           {% endfor %}
         </tbody>
         <tfoot>
+          {% set tot_cpf = (tot_conv_fat.n / tot_conv_prod.n * 100) if tot_conv_prod.n else 0 %}
           <tr>
             <td></td><td><strong>TOTAL</strong></td>
             <td class="right ok"><strong>{{ "{:,}".format(tot_conv_final.n).replace(",",".") }}</strong></td>
             <td class="right"><strong>{% if tot_conv_prod.n > 0 %}R$ {{ "{:,.2f}".format(tot_conv_prod.n).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</strong></td>
+            <td class="right ok"><strong>{% if tot_conv_fat.n > 0 %}R$ {{ "{:,.2f}".format(tot_conv_fat.n).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</strong></td>
+            <td class="right warn"><strong>{% if tot_conv_afat.n > 0 %}R$ {{ "{:,.2f}".format(tot_conv_afat.n).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</strong></td>
+            <td class="right {% if tot_cpf >= 80 %}ok{% elif tot_cpf >= 50 %}mid{% else %}warn{% endif %}"><strong>{{ "%.1f"|format(tot_cpf)|replace(".",",") }}%</strong></td>
             <td class="right"><strong>100%</strong></td>
             <td class="right"><strong>{% if tot_conv_final.n > 0 and tot_conv_prod.n > 0 %}R$ {{ "{:,.2f}".format(tot_conv_prod.n / tot_conv_final.n).replace(",","X").replace(".",",").replace("X",".") }}{% else %}—{% endif %}</strong></td>
           </tr>

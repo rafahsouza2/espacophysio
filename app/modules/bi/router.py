@@ -15,7 +15,17 @@ router = APIRouter(tags=["bi"])
 
 def _backfill_bi(d: dict) -> dict:
     """Adiciona campos novos a relatórios gerados pelo parser antigo."""
-    if not d or "alcance_meta" in d:
+    if not d:
+        return d
+
+    # Backfill de faturamento em dados sem esses campos
+    k = d.get("kpis", {})
+    k.setdefault("total_faturamento",  0.0)
+    k.setdefault("total_faturado_cnt", 0)
+    k.setdefault("pct_faturado",       0.0)
+    k.setdefault("a_faturar",          float(k.get("total_producao", 0)))
+
+    if "alcance_meta" in d:
         return d
     from app.modules.bi.parser import META, META_DIARIA
     k   = d.get("kpis", {})

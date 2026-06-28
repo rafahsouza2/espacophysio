@@ -26,7 +26,9 @@ def _save_supabase(data: dict) -> str | None:
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
         k  = data["kpis"]
-        sb.table("bi_reports").upsert({
+        # Apaga o registro antigo antes de inserir para garantir dados frescos
+        sb.table("bi_reports").delete().eq("period_key", data["period_key"]).execute()
+        sb.table("bi_reports").insert({
             "period_key":         data["period_key"],
             "periodo_label":      data["periodo"]["label"],
             "periodo_inicio":     data["periodo"]["inicio"],
@@ -36,6 +38,7 @@ def _save_supabase(data: dict) -> str | None:
             "total_producao":     float(k["total_producao"]),
             "data":               data,
         }).execute()
+        print(f"[BI] Supabase salvo: {data['period_key']} | fat={k.get('pct_faturado','?')}%")
         return None
     except Exception as e:
         print("BI SUPABASE SAVE ERROR:", repr(e))
@@ -178,6 +181,7 @@ def parse_xls(content: bytes) -> dict:
     col_agendador = _col(["Agendou", "Usu"])
     col_prof_raw  = _col(["Profissional"])
     col_esp_raw   = _col(["Especialidade"])
+    col_protocolo = _col(["Protocolo Lote", "Protocolo do Lote", "Num Lote", "Nº Lote", "Lote"])
 
     if not col_dt_atend or not col_status:
         raise ValueError("Arquivo não reconhecido: colunas obrigatórias ausentes.")
@@ -210,6 +214,24 @@ def parse_xls(content: bytes) -> dict:
                        if col_status_ag else "")
     df["_stat_raw"] = df[col_status].fillna("").astype(str).str.strip().str.upper()
 
+    # Faturamento: tem protocolo de lote OU é atendimento particular
+    _PROT_VAZIO = {"", "nan", "none", "0", "0.0", "null", "-", "n/a"}
+    if col_protocolo:
+        # Células vazias no Excel chegam como NaN (float); zeros e strings vazias = sem protocolo
+        _prot_raw = df[col_protocolo]
+        _prot_str = _prot_raw.astype(str).str.strip().str.lower()
+        _has_prot = (~_prot_raw.isna()) & (~_prot_str.isin(_PROT_VAZIO))
+        print(f"[BI] col_protocolo='{col_protocolo}' | com protocolo: {_has_prot.sum()} | sem: {(~_has_prot).sum()}")
+    else:
+        _has_prot = pd.Series(False, index=df.index)
+        print("[BI] Coluna 'Protocolo Lote' não encontrada no arquivo")
+    if col_convenio:
+        _is_part = df[col_convenio].str.upper().str.contains("PARTICULAR", na=False)
+    else:
+        _is_part = pd.Series(False, index=df.index)
+    df["_faturado"] = _has_prot | _is_part
+    print(f"[BI] Total faturado (protocolo + particular): {df['_faturado'].sum()}")
+
     df = df[df["_dt"].notna()].copy()
 
     # 4. Função de agregação (usada para global e por unidade)
@@ -231,6 +253,13 @@ def parse_xls(content: bytes) -> dict:
         total_prod   = float(df_real["_val"].sum())
         ticket_medio = round(total_prod / total_atend, 2) if total_atend else 0.0
         alcance_meta = round(total_prod / meta * 100, 1) if meta else 0.0
+
+        # Faturamento
+        df_fat = df_real[df_real["_faturado"]].copy() if "_faturado" in df_real.columns else df_real.iloc[0:0]
+        total_faturamento  = float(df_fat["_val"].sum())
+        total_faturado_cnt = int(len(df_fat))
+        pct_faturado       = round(total_faturamento / total_prod * 100, 1) if total_prod else 0.0
+        a_faturar          = max(0.0, round(total_prod - total_faturamento, 2))
 
         conv_producao = 0.0; part_producao = 0.0; conv_pct = 0.0; part_pct = 0.0
         if col_convenio:
@@ -290,14 +319,19 @@ def parse_xls(content: bytes) -> dict:
         prof_all       = sub.groupby("_prof").size()
         prof_final_cnt = df_real.groupby("_prof").size()
         prof_prod_val  = df_real.groupby("_prof")["_val"].sum()
+        prof_fat_val   = df_fat.groupby("_prof")["_val"].sum() if len(df_fat) else pd.Series(dtype=float)
         profissionais  = []
         for nome in prof_all.index:
             total = int(prof_all[nome]); final = int(prof_final_cnt.get(nome, 0))
             prod  = round(float(prof_prod_val.get(nome, 0.0)), 2)
+            fat   = round(float(prof_fat_val.get(nome, 0.0)), 2)
             profissionais.append({
                 "nome": nome, "qtde": total, "total": total, "final": final,
                 "marcado": total - final, "prod": prod,
-                "taxa_final": round(final / total * 100, 1) if total else 0.0,
+                "taxa_final":   round(final / total * 100, 1) if total else 0.0,
+                "faturado":     fat,
+                "a_faturar":    max(0.0, round(prod - fat, 2)),
+                "pct_faturado": round(fat / prod * 100, 1) if prod else 0.0,
             })
         profissionais.sort(key=lambda p: p["prod"] if p["prod"] > 0 else p["final"], reverse=True)
         profissionais = profissionais[:15]
@@ -324,12 +358,17 @@ def parse_xls(content: bytes) -> dict:
             cv_grp = df_real.groupby(col_convenio).agg(
                 qtde=("_val","count"), producao=("_val","sum")
             ).sort_values("producao", ascending=False)
+            cv_fat_grp = df_fat.groupby(col_convenio)["_val"].sum() if col_convenio in df_fat.columns and len(df_fat) else pd.Series(dtype=float)
             for k, row in cv_grp.iterrows():
                 q = int(row["qtde"]); p = round(float(row["producao"]), 2)
+                fat = round(float(cv_fat_grp.get(k, 0.0)), 2)
                 convenios.append({
                     "nome": k, "qtde": q, "final": q, "producao": p,
                     "pct": round(p / total_prod * 100, 1) if total_prod else 0.0,
                     "ticket": round(p / q, 2) if q else 0.0,
+                    "faturado":     fat,
+                    "a_faturar":    max(0.0, round(p - fat, 2)),
+                    "pct_faturado": round(fat / p * 100, 1) if p else 0.0,
                 })
 
         # Tipos
@@ -407,6 +446,10 @@ def parse_xls(content: bytes) -> dict:
                 "conv_pct":             conv_pct,
                 "part_pct":             part_pct,
                 "alcance_meta":         alcance_meta,
+                "total_faturamento":    round(total_faturamento, 2),
+                "total_faturado_cnt":   total_faturado_cnt,
+                "pct_faturado":         pct_faturado,
+                "a_faturar":            a_faturar,
             },
             "evolucao_diaria": {
                 "labels": evo_labels, "atendimentos": evo_atend, "faltas": evo_faltas,
@@ -499,9 +542,13 @@ def load_saved(period_key: str | None = None) -> dict | None:
     data = _load_supabase(period_key)
     if data:
         return data
+    # Fallback: disco local
     if DATA_PATH.exists():
         try:
-            return json.loads(DATA_PATH.read_text(encoding="utf-8"))
+            d = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+            # Só usa o disco se for o mesmo período solicitado
+            if not period_key or d.get("period_key") == period_key:
+                return d
         except Exception:
             pass
     return None
