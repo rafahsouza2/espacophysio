@@ -21,6 +21,7 @@ DEFAULTS: dict = {
     "meta_mensal":        1_000_000.0,
     "dias_uteis_mes":     22.0,
     "metas_por_unidade":  {},
+    "cidade_geocoding":   "Brasília, DF, Brasil",
 }
 
 
@@ -31,6 +32,7 @@ def get_bi_config() -> dict:
         "meta_mensal":       DEFAULTS["meta_mensal"],
         "dias_uteis_mes":    DEFAULTS["dias_uteis_mes"],
         "metas_por_unidade": {},
+        "cidade_geocoding":  DEFAULTS["cidade_geocoding"],
     }
 
     # 1. Disco (base persistente)
@@ -43,6 +45,8 @@ def get_bi_config() -> dict:
                 cfg["dias_uteis_mes"] = float(raw["dias_uteis_mes"])
             if isinstance(raw.get("metas_por_unidade"), dict):
                 cfg["metas_por_unidade"] = raw["metas_por_unidade"]
+            if isinstance(raw.get("cidade_geocoding"), str) and raw["cidade_geocoding"].strip():
+                cfg["cidade_geocoding"] = raw["cidade_geocoding"].strip()
         except Exception:
             pass
 
@@ -63,6 +67,8 @@ def get_bi_config() -> dict:
                     cfg[chave] = float(valor)
                 except Exception:
                     pass
+            elif chave == "cidade_geocoding" and valor.strip():
+                cfg["cidade_geocoding"] = valor.strip()
     except Exception as e:
         print("BI CONFIG LOAD (Supabase):", repr(e))
 
@@ -132,6 +138,9 @@ def save_bi_config(valores: dict) -> str | None:
         elif k in ("meta_mensal", "dias_uteis_mes"):
             val_str = str(float(v))
             disk_cfg[k] = float(v)
+        elif k == "cidade_geocoding":
+            val_str = str(v).strip()
+            disk_cfg[k] = val_str
         else:
             continue
         rows.append({"chave": k, "valor": val_str, "updated_at": datetime.now().isoformat()})

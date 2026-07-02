@@ -547,11 +547,14 @@ a#menu-bi-link { display: flex; align-items: center; }
 .bi-sidebar-tabs {
   display: flex; flex-direction: column; gap: 1px;
   padding: 1px 0 4px 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   transition: max-height 0.28s ease, opacity 0.22s ease;
-  max-height: 400px; opacity: 1;
+  max-height: 70vh; opacity: 1;
 }
 .bi-sidebar-tabs.collapsed { max-height: 0; opacity: 0; pointer-events: none; }
+.bi-sidebar-tabs::-webkit-scrollbar { width: 3px; }
+.bi-sidebar-tabs::-webkit-scrollbar-thumb { background: rgba(0,0,0,.12); border-radius: 2px; }
 .bi-sidebar-tab {
   display: block; width: 100%; background: none; border: none;
   text-align: left; padding: 7px 12px 7px 30px;
@@ -570,6 +573,14 @@ a#menu-bi-link { display: flex; align-items: center; }
 .bi-sidebar-tab:hover { background: rgba(229,98,46,0.08); color: var(--primary-strong); }
 .bi-sidebar-tab.active { background: rgba(229,98,46,0.12); color: var(--primary-strong); font-weight: 700; }
 .bi-sidebar-tab.active::before { opacity: 1; }
+
+.bi-sidebar-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 6px 12px;
+  opacity: .6;
+}
+
 
 /* Upload btn na sidebar */
 .bi-sidebar-upload-btn {

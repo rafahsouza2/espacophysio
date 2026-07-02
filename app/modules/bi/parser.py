@@ -21,6 +21,47 @@ META_DIARIA = META / 22
 DATA_PATH = Path(__file__).parent.parent.parent / "data" / "bi_data.json"
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
+def _save_atendimentos(df: pd.DataFrame, period_key: str,
+                        col_paciente, col_convenio, col_unidade, col_protocolo) -> str | None:
+    """Salva linhas individuais na tabela bi_atendimentos (delete+insert por período)."""
+    try:
+        from app.database import get_supabase_admin
+        sb = get_supabase_admin()
+        sb.table("bi_atendimentos").delete().eq("period_key", period_key).execute()
+
+        rows = []
+        for _, r in df.iterrows():
+            dt   = r["_dt"]
+            nasc = r.get("_nasc") if "_nasc" in df.columns else None
+            rows.append({
+                "period_key":     period_key,
+                "data_atend":     dt.strftime("%Y-%m-%d") if pd.notna(dt) else None,
+                "paciente":       str(r[col_paciente]).strip() if col_paciente and pd.notna(r.get(col_paciente)) else None,
+                "profissional":   str(r["_prof"]) if "_prof" in r else None,
+                "especialidade":  str(r["_esp"])  if "_esp"  in r else None,
+                "convenio":       str(r[col_convenio]).strip() if col_convenio and pd.notna(r.get(col_convenio)) else None,
+                "unidade":        str(r[col_unidade]).strip()  if col_unidade  and pd.notna(r.get(col_unidade))  else None,
+                "valor":          float(r["_val"]) if "_val" in r else 0.0,
+                "faturado":       bool(r["_faturado"]) if "_faturado" in r else False,
+                "protocolo_lote": str(r[col_protocolo]).strip() if col_protocolo and pd.notna(r.get(col_protocolo)) else None,
+                "status":         str(r["_status"]) if "_status" in r else None,
+                "data_nascimento": nasc.strftime("%Y-%m-%d") if nasc is not None and pd.notna(nasc) else None,
+                "sexo":           str(r.get("_sexo", "")).strip() or None,
+                "bairro":         str(r.get("_bairro", "")).strip() or None,
+                "cidade":         str(r.get("_cidade", "")).strip() or None,
+            })
+
+        # Insere em lotes de 500
+        for i in range(0, len(rows), 500):
+            sb.table("bi_atendimentos").insert(rows[i:i+500]).execute()
+
+        print(f"[BI] bi_atendimentos: {len(rows)} linhas salvas para {period_key}")
+        return None
+    except Exception as e:
+        print("BI ATENDIMENTOS SAVE ERROR:", repr(e))
+        return repr(e)
+
+
 def _save_supabase(data: dict) -> str | None:
     try:
         from app.database import get_supabase_admin
@@ -182,6 +223,8 @@ def parse_xls(content: bytes) -> dict:
     col_prof_raw  = _col(["Profissional"])
     col_esp_raw   = _col(["Especialidade"])
     col_protocolo = _col(["Protocolo Lote", "Protocolo do Lote", "Num Lote", "Nº Lote", "Lote"])
+    col_bairro    = _col(["Bairro", "Bairro Residência", "Bairro Res", "Bairro do Paciente"])
+    col_cidade    = _col(["Cidade", "Município", "Localidade", "Cidade do Paciente", "Municipio"])
 
     if not col_dt_atend or not col_status:
         raise ValueError("Arquivo não reconhecido: colunas obrigatórias ausentes.")
@@ -209,6 +252,10 @@ def parse_xls(content: bytes) -> dict:
     if col_dt_nasc:
         df["_nasc"]  = pd.to_datetime(df[col_dt_nasc], dayfirst=True, errors="coerce")
         df["_idade"] = ((df["_dt"] - df["_nasc"]).dt.days / 365.25).round(0)
+
+    df["_sexo"]   = df[col_sexo].fillna("").astype(str).str.strip()   if col_sexo   else ""
+    df["_bairro"] = df[col_bairro].fillna("").astype(str).str.strip() if col_bairro else ""
+    df["_cidade"] = df[col_cidade].fillna("").astype(str).str.strip() if col_cidade else ""
 
     df["_stag_raw"] = (df[col_status_ag].fillna("").astype(str).str.strip()
                        if col_status_ag else "")
@@ -269,6 +316,30 @@ def parse_xls(content: bytes) -> dict:
             if total_prod > 0:
                 conv_pct = round(conv_producao / total_prod * 100, 1)
                 part_pct = round(part_producao / total_prod * 100, 1)
+
+        # Totais do Status do Agendamento
+        total_todos = int(len(sub))
+        if col_status_ag:
+            _stag = sub["_stag_raw"].str.strip()
+            total_confirmados    = int((_stag.str.lower() == "confirmada").sum())
+            total_reagendados    = int(_stag.str.upper().str.contains("REAGEND", na=False).sum())
+            total_desmarcados_ag = int(_stag.str.upper().str.contains("DESMARC|DESISTIU", na=False).sum())
+            total_faltas_ag      = int(_stag.str.upper().str.contains("FALTOU", na=False).sum())
+            perdas_dist: dict = {}
+            for _v, _c in _stag.value_counts().items():
+                _vl = str(_v).strip().lower()
+                if _vl and _vl != "confirmada":
+                    perdas_dist[str(_v).strip()] = int(_c)
+            _desm_mask  = _stag.str.upper().str.contains("DESMARC|DESISTIU", na=False)
+            _falt_mask  = _stag.str.upper().str.contains("FALTOU", na=False)
+            _reagd_mask = _stag.str.upper().str.contains("REAGEND", na=False)
+            prof_desm_cnt  = sub[_desm_mask].groupby("_prof").size()
+            prof_falt_cnt  = sub[_falt_mask].groupby("_prof").size()
+            prof_reagd_cnt = sub[_reagd_mask].groupby("_prof").size()
+        else:
+            total_confirmados = total_reagendados = total_desmarcados_ag = total_faltas_ag = 0
+            perdas_dist = {}
+            prof_desm_cnt = prof_falt_cnt = prof_reagd_cnt = pd.Series(dtype=int)
 
         # Status
         status_ag: dict = {}
@@ -332,6 +403,9 @@ def parse_xls(content: bytes) -> dict:
                 "faturado":     fat,
                 "a_faturar":    max(0.0, round(prod - fat, 2)),
                 "pct_faturado": round(fat / prod * 100, 1) if prod else 0.0,
+                "desmarcados":  int(prof_desm_cnt.get(nome, 0)),
+                "faltas_ag":    int(prof_falt_cnt.get(nome, 0)),
+                "reagendados":  int(prof_reagd_cnt.get(nome, 0)),
             })
         profissionais.sort(key=lambda p: p["prod"] if p["prod"] > 0 else p["final"], reverse=True)
         profissionais = profissionais[:15]
@@ -402,19 +476,52 @@ def parse_xls(content: bytes) -> dict:
                     "ticket": round(prod / fin, 2) if fin else 0.0,
                 })
 
-        # Genero / faixa
+        # Gênero e faixa etária — por paciente único (primeira ocorrência)
+        pac_uniq = (
+            df_real.drop_duplicates(subset=[col_paciente], keep="first")
+            if col_paciente else df_real
+        )
+
         genero = {"feminino": 0, "masculino": 0}
-        if col_sexo:
-            sx = df_real[col_sexo].str.lower().value_counts()
+        if "_sexo" in pac_uniq.columns:
+            sx = pac_uniq["_sexo"].str.lower().value_counts()
             genero["feminino"]  = int(sx.filter(like="fem").sum())
             genero["masculino"] = int(sx.filter(like="masc").sum())
 
         faixa_etaria = {}
-        if col_dt_nasc and "_idade" in df_real.columns:
-            bins   = [0,18,30,45,60,80,200]
-            labels = ["<18","18-29","30-44","45-59","60-79","80+"]
-            df_real["_faixa"] = pd.cut(df_real["_idade"], bins=bins, labels=labels, right=False)
-            faixa_etaria = {l: int((df_real["_faixa"] == l).sum()) for l in labels}
+        idade_media  = 0.0
+        total_acima_60 = 0
+        total_acima_80 = 0
+        if col_dt_nasc and "_idade" in pac_uniq.columns:
+            _ids = pac_uniq["_idade"].dropna()
+            idade_media = float(_ids.mean()) if not _ids.empty else 0.0
+            bins   = [0, 30, 40, 50, 60, 80, 200]
+            labels = ["Até 29", "30-39", "40-49", "50-59", "60-79", "80+"]
+            pac_uniq = pac_uniq.copy()
+            pac_uniq["_faixa"] = pd.cut(pac_uniq["_idade"], bins=bins, labels=labels, right=False)
+            faixa_etaria   = {l: int((pac_uniq["_faixa"] == l).sum()) for l in labels}
+            total_acima_60 = faixa_etaria.get("60-79", 0) + faixa_etaria.get("80+", 0)
+            total_acima_80 = faixa_etaria.get("80+", 0)
+
+        tot_pac_demo = len(pac_uniq) or 1
+        pct_acima_60 = round(total_acima_60 / tot_pac_demo * 100, 1)
+        pct_acima_80 = round(total_acima_80 / tot_pac_demo * 100, 1)
+
+        # Distribuição por localidade (bairro > cidade)
+        localidade = {}
+        if "_bairro" in df_real.columns:
+            bairros = df_real["_bairro"].replace("", None).dropna().value_counts().head(20)
+            if not bairros.empty:
+                localidade = {str(k): int(v) for k, v in bairros.items()}
+        if not localidade and "_cidade" in df_real.columns:
+            cidades = df_real["_cidade"].replace("", None).dropna().value_counts().head(20)
+            localidade = {str(k): int(v) for k, v in cidades.items()}
+
+        # Convenios por paciente único
+        convenios_pacientes: dict = {}
+        if col_convenio and col_paciente and not pac_uniq.empty:
+            cp = pac_uniq[col_convenio].fillna("Sem Convênio").astype(str).str.strip().value_counts()
+            convenios_pacientes = {str(k): int(v) for k, v in cp.items()}
 
         como_achou = {}
         if col_como:
@@ -450,6 +557,16 @@ def parse_xls(content: bytes) -> dict:
                 "total_faturado_cnt":   total_faturado_cnt,
                 "pct_faturado":         pct_faturado,
                 "a_faturar":            a_faturar,
+                "total_agendamentos":   total_todos,
+                "total_confirmados":    total_confirmados,
+                "total_reagendados":    total_reagendados,
+                "total_desmarcados_ag": total_desmarcados_ag,
+                "total_faltas_ag":      total_faltas_ag,
+                "idade_media":          round(idade_media, 1),
+                "total_acima_60":       total_acima_60,
+                "total_acima_80":       total_acima_80,
+                "pct_acima_60":         pct_acima_60,
+                "pct_acima_80":         pct_acima_80,
             },
             "evolucao_diaria": {
                 "labels": evo_labels, "atendimentos": evo_atend, "faltas": evo_faltas,
@@ -460,12 +577,15 @@ def parse_xls(content: bytes) -> dict:
             "convenios":          convenios,
             "tipos":              tipos,
             "atendentes":         atendentes,
+            "perdas_distribuicao":  perdas_dist,
             "status_agendamento": status_ag,
             "status_atendimento": status_at,
             "cross_data":         cross_data,
-            "genero":             genero,
-            "faixa_etaria":       faixa_etaria,
-            "como_achou":         como_achou,
+            "genero":               genero,
+            "faixa_etaria":         faixa_etaria,
+            "localidade":           localidade,
+            "convenios_pacientes":  convenios_pacientes,
+            "como_achou":           como_achou,
         }
 
     # 5. KPIs globais
@@ -527,6 +647,7 @@ def parse_xls(content: bytes) -> dict:
 
     # 9. Persistir
     save_error = _save_supabase(result)
+    _save_atendimentos(df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo)
     result["_save_error"] = save_error
     try:
         DATA_PATH.parent.mkdir(parents=True, exist_ok=True)

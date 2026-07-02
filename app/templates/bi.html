@@ -11,6 +11,13 @@
   <button class="bi-sidebar-tab" data-target="tab-atendentes">Atendentes</button>
   <button class="bi-sidebar-tab" data-target="tab-agendamentos">Agendamentos</button>
   <button class="bi-sidebar-tab" data-target="tab-historico">Histórico</button>
+  <div class="bi-sidebar-sep"></div>
+  <button class="bi-sidebar-tab" data-target="tab-listagem">Listagem</button>
+  <div class="bi-sidebar-sep"></div>
+  <button class="bi-sidebar-tab" data-target="tab-executivo">Executivo</button>
+  <button class="bi-sidebar-tab" data-target="tab-demografico">Demográfico</button>
+  <button class="bi-sidebar-tab" data-target="tab-especialidades">Especialidades</button>
+  <button class="bi-sidebar-tab" data-target="tab-indicadores">Indicadores</button>
   {% if lista_unidades %}
   <button class="bi-sidebar-tab" data-target="tab-unidades">Unidades</button>
   {% endif %}
@@ -23,6 +30,7 @@
 
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -847,6 +855,843 @@ const PERIODO   = BI.periodo?.label || '';
 {# ═══════════════════════════════════════════════════
    ABA PARÂMETROS — fora do bloco bi_data (sempre visível)
 ═══════════════════════════════════════════════════ #}
+{# ═══════════════════════════════════════════════════
+   ABA — LISTAGEM
+═══════════════════════════════════════════════════ #}
+<section id="tab-listagem" class="bi-panel">
+
+  {# Filtros #}
+  <div class="lst-filters" id="lst-filters">
+    <div class="lst-filter-group">
+      <label class="lst-label">Convênio</label>
+      <select id="lst-convenio" class="lst-select">
+        <option value="">Todos os convênios</option>
+      </select>
+    </div>
+    <div class="lst-filter-group">
+      <label class="lst-label">Unidade</label>
+      <select id="lst-unidade" class="lst-select">
+        <option value="">Todas as unidades</option>
+        {% for u in lista_unidades %}
+        <option value="{{ u }}">{{ u }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="lst-filter-group">
+      <label class="lst-label">Profissional</label>
+      <select id="lst-profissional" class="lst-select">
+        <option value="">Todos os profissionais</option>
+      </select>
+    </div>
+    <div class="lst-filter-group">
+      <label class="lst-label">Faturamento</label>
+      <select id="lst-faturado" class="lst-select">
+        <option value="">Todos</option>
+        <option value="sim">Faturado</option>
+        <option value="nao">A Faturar</option>
+      </select>
+    </div>
+    <button class="lst-btn-buscar" id="lst-buscar" onclick="lstBuscar(1)">Buscar</button>
+    <a class="lst-btn-export" id="lst-export" href="#" onclick="lstExportar(event)">↓ CSV</a>
+  </div>
+
+  {# Cards de resumo #}
+  <div class="hero-grid" id="lst-summary" style="display:none">
+    <article class="hero-card">
+      <span class="hero-label">Registros</span>
+      <span class="hero-value" id="lst-total-cnt">—</span>
+    </article>
+    <article class="hero-card">
+      <span class="hero-label">Produção Total</span>
+      <span class="hero-value" id="lst-total-val">—</span>
+    </article>
+    <article class="hero-card hero-green">
+      <span class="hero-label">Faturado</span>
+      <span class="hero-value" id="lst-fat-val">—</span>
+    </article>
+    <article class="hero-card hero-amber">
+      <span class="hero-label">A Faturar</span>
+      <span class="hero-value" id="lst-afat-val">—</span>
+    </article>
+  </div>
+
+  {# Tabela #}
+  <article class="dashboard-card glass" style="padding:0;overflow:hidden">
+    <div style="overflow-x:auto">
+      <table class="bi-table bi-table-green" id="lst-table">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Paciente</th>
+            <th>Profissional</th>
+            <th>Especialidade</th>
+            <th>Convênio</th>
+            <th>Unidade</th>
+            <th class="right">Valor</th>
+            <th class="center">Faturado</th>
+            <th>Protocolo</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="lst-tbody">
+          <tr><td colspan="10" style="text-align:center;padding:48px;color:var(--muted)">Use os filtros acima e clique em Buscar.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    {# Paginação #}
+    <div class="lst-pagination" id="lst-pagination" style="display:none">
+      <button class="lst-page-btn" id="lst-prev" onclick="lstBuscar(lstState.page-1)">‹ Anterior</button>
+      <span id="lst-page-info" style="font-size:.82rem;color:var(--muted)"></span>
+      <button class="lst-page-btn" id="lst-next" onclick="lstBuscar(lstState.page+1)">Próxima ›</button>
+    </div>
+  </article>
+
+  <style>
+  .lst-filters {
+    display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 16px; padding: 18px 20px; margin-bottom: 16px;
+  }
+  .lst-filter-group { display: flex; flex-direction: column; gap: 5px; }
+  .lst-label { font-size: .75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .lst-select {
+    padding: 8px 12px; border-radius: 9px; border: 1.5px solid var(--line);
+    background: var(--bg); color: var(--text); font-size: .84rem;
+    min-width: 170px; outline: none; cursor: pointer;
+  }
+  .lst-select:focus { border-color: var(--primary); }
+  .lst-btn-buscar {
+    padding: 8px 22px; border-radius: 9px; border: none; cursor: pointer;
+    background: var(--primary); color: #fff; font-weight: 700; font-size: .84rem;
+    align-self: flex-end;
+  }
+  .lst-btn-buscar:hover { filter: brightness(1.08); }
+  .lst-btn-export {
+    padding: 8px 16px; border-radius: 9px; border: 1.5px solid var(--primary);
+    color: var(--primary); font-weight: 700; font-size: .84rem; text-decoration: none;
+    align-self: flex-end; white-space: nowrap;
+  }
+  .lst-btn-export:hover { background: rgba(229,98,46,.08); }
+  .lst-pagination {
+    display: flex; align-items: center; justify-content: center; gap: 16px;
+    padding: 14px 0; border-top: 1px solid var(--line);
+  }
+  .lst-page-btn {
+    padding: 6px 16px; border-radius: 8px; border: 1.5px solid var(--line);
+    background: none; cursor: pointer; font-size: .84rem; font-weight: 600;
+    color: var(--primary);
+  }
+  .lst-page-btn:hover { background: rgba(229,98,46,.08); }
+  .lst-page-btn:disabled { opacity: .35; cursor: default; }
+  .lst-badge-fat   { background: #dcfce7; color: #166534; border-radius: 6px; padding: 2px 8px; font-size: .75rem; font-weight: 700; }
+  .lst-badge-noFat { background: #fef3c7; color: #92400e; border-radius: 6px; padding: 2px 8px; font-size: .75rem; font-weight: 700; }
+  </style>
+
+</section>
+
+
+{# ═══════════════════════════════════════════════════
+   ABA — EXECUTIVO
+═══════════════════════════════════════════════════ #}
+<section id="tab-executivo" class="bi-panel">
+{% if bi_data %}
+{% set k = bi_data.kpis %}
+{% set tot_ag   = k.total_agendamentos if k.total_agendamentos else k.total_agendados %}
+{% set pct_desm = (k.total_desmarcados_ag / tot_ag * 100) if tot_ag else 0 %}
+{% set pct_falt = (k.total_faltas_ag / tot_ag * 100) if tot_ag else 0 %}
+{% set pct_reag = (k.total_reagendados / tot_ag * 100) if tot_ag else 0 %}
+{% set taxa_conv = (k.total_atendimentos / tot_ag * 100) if tot_ag else 0 %}
+{% set pct_conf  = (k.total_confirmados / tot_ag * 100) if tot_ag else 0 %}
+{% set conv_color = "#3d6b1a" if taxa_conv >= 70 else ("#c47b00" if taxa_conv >= 50 else "#b83030") %}
+
+<style>
+/* ── Executive Dashboard ── */
+@media (max-width: 900px) {
+  .exec-kpi-strip { grid-template-columns: repeat(3,1fr) !important; }
+  .exec-banner { grid-template-columns: 1fr !important; }
+  .exec-banner-stats { flex-wrap: wrap; gap: 16px; }
+  .exec-banner-rate { font-size: 2.8rem !important; }
+}
+@media (max-width: 600px) {
+  .exec-kpi-strip { grid-template-columns: repeat(2,1fr) !important; }
+}
+.exec-banner {
+  background: linear-gradient(135deg, #1e3a0f 0%, #2d5a12 45%, #3d6b1a 100%);
+  border-radius: 20px;
+  padding: 28px 36px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 32px;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+}
+.exec-banner::after {
+  content: '';
+  position: absolute;
+  right: -40px; top: -40px;
+  width: 200px; height: 200px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.04);
+  pointer-events: none;
+}
+.exec-banner-left { color: #fff; }
+.exec-banner-eyebrow { font-size: .72rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; opacity: .6; margin-bottom: 6px; }
+.exec-banner-rate { font-size: 4rem; font-weight: 900; line-height: 1; letter-spacing: -.02em; }
+.exec-banner-sub { font-size: .88rem; opacity: .75; margin-top: 8px; }
+.exec-banner-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 12px; padding: 5px 14px;
+  background: rgba(255,255,255,.12); border-radius: 999px;
+  font-size: .78rem; font-weight: 700; color: #fff;
+}
+.exec-banner-stats { display: flex; gap: 28px; }
+.exec-banner-stat { text-align: center; color: rgba(255,255,255,.9); }
+.exec-banner-stat-val { display: block; font-size: 1.8rem; font-weight: 900; line-height: 1; }
+.exec-banner-stat-lbl { font-size: .72rem; opacity: .65; margin-top: 4px; display: block; }
+.exec-banner-divider { width: 1px; background: rgba(255,255,255,.15); align-self: stretch; }
+
+/* KPI strip */
+.exec-kpi-strip { display: grid; grid-template-columns: repeat(6,1fr); gap: 10px; margin-bottom: 20px; }
+.exec-kpi { background: var(--card); border: 1.5px solid var(--line); border-left: 4px solid var(--kc,#6b7280); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+.exec-kpi-lbl { font-size: .68rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.exec-kpi-val { font-size: 1.6rem; font-weight: 900; color: #111; line-height: 1; }
+.exec-kpi-pct { font-size: .72rem; font-weight: 700; color: var(--kc,#6b7280); background: color-mix(in srgb, var(--kc,#6b7280) 12%, transparent); padding: 2px 8px; border-radius: 5px; display: inline-block; width: fit-content; }
+
+/* Funil */
+.exec-funnel { display: flex; flex-direction: column; align-items: center; gap: 0; padding: 12px 16px 4px; }
+.exec-funnel-tier { display: flex; flex-direction: column; align-items: center; transition: width .7s ease; }
+.exec-funnel-bar {
+  width: 100%; color: #fff; display: flex;
+  justify-content: space-between; align-items: center;
+  padding: 14px 20px; gap: 8px;
+}
+.exec-funnel-bar-info { display: flex; flex-direction: column; gap: 2px; }
+.exec-funnel-bar-val { font-size: 1.4rem; font-weight: 900; line-height: 1; }
+.exec-funnel-bar-lbl { font-size: .74rem; opacity: .8; }
+.exec-funnel-bar-pct { font-size: 2rem; font-weight: 900; opacity: .9; flex-shrink: 0; }
+.exec-funnel-neck {
+  width: 0; height: 0;
+  border-left: 22px solid transparent;
+  border-right: 22px solid transparent;
+}
+.exec-funnel-drop { font-size: .72rem; color: var(--muted); padding: 5px 0; display: flex; align-items: center; gap: 8px; }
+.exec-funnel-drop::before, .exec-funnel-drop::after { content:''; flex:1; height:1px; background:var(--line); }
+
+/* Tabela desempenho */
+.exec-perf-bar { height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; margin-top: 4px; }
+.exec-perf-bar-fill { height: 100%; border-radius: 3px; transition: width .6s ease; }
+</style>
+
+  {# ── Banner ── #}
+  <div class="exec-banner">
+    <div class="exec-banner-left">
+      <div class="exec-banner-eyebrow">Dashboard Executivo · {{ bi_data.periodo.label }}</div>
+      <div class="exec-banner-rate">{{ "%.1f"|format(taxa_conv)|replace(".",",") }}%</div>
+      <div class="exec-banner-sub">Taxa de Conversão Geral — Agendamentos → Finalizados</div>
+      <span class="exec-banner-pill">
+        {% if taxa_conv >= 70 %}✓ Meta atingida{% elif taxa_conv >= 50 %}⚠ Abaixo da meta{% else %}✗ Crítico — ação necessária{% endif %}
+        &nbsp;·&nbsp; Meta: 70%
+      </span>
+    </div>
+    <div class="exec-banner-stats">
+      <div class="exec-banner-stat">
+        <span class="exec-banner-stat-val">{{ "{:,}".format(tot_ag).replace(",",".") }}</span>
+        <span class="exec-banner-stat-lbl">Agendamentos</span>
+      </div>
+      <div class="exec-banner-divider"></div>
+      <div class="exec-banner-stat">
+        <span class="exec-banner-stat-val">{{ "{:,}".format(k.total_confirmados).replace(",",".") }}</span>
+        <span class="exec-banner-stat-lbl">Confirmados</span>
+      </div>
+      <div class="exec-banner-divider"></div>
+      <div class="exec-banner-stat">
+        <span class="exec-banner-stat-val">{{ "{:,}".format(k.total_atendimentos).replace(",",".") }}</span>
+        <span class="exec-banner-stat-lbl">Finalizados</span>
+      </div>
+    </div>
+  </div>
+
+  {# ── KPI Strip ── #}
+  <div class="exec-kpi-strip">
+    <div class="exec-kpi" style="--kc:#185FA5">
+      <span class="exec-kpi-lbl">Agendamentos</span>
+      <span class="exec-kpi-val">{{ "{:,}".format(tot_ag).replace(",",".") }}</span>
+      <span class="exec-kpi-pct">100% base</span>
+    </div>
+    <div class="exec-kpi" style="--kc:#3d6b1a">
+      <span class="exec-kpi-lbl">Finalizados</span>
+      <span class="exec-kpi-val">{{ "{:,}".format(k.total_atendimentos).replace(",",".") }}</span>
+      <span class="exec-kpi-pct">{{ "%.1f"|format(taxa_conv)|replace(".",",") }}%</span>
+    </div>
+    <div class="exec-kpi" style="--kc:#6b7280">
+      <span class="exec-kpi-lbl">Confirmados</span>
+      <span class="exec-kpi-val">{{ "{:,}".format(k.total_confirmados).replace(",",".") }}</span>
+      <span class="exec-kpi-pct">{{ "%.1f"|format(pct_conf)|replace(".",",") }}%</span>
+    </div>
+    <div class="exec-kpi" style="--kc:#b83030">
+      <span class="exec-kpi-lbl">Desmarcados</span>
+      <span class="exec-kpi-val">{{ "{:,}".format(k.total_desmarcados_ag).replace(",",".") }}</span>
+      <span class="exec-kpi-pct">{{ "%.1f"|format(pct_desm)|replace(".",",") }}%</span>
+    </div>
+    <div class="exec-kpi" style="--kc:#c47b00">
+      <span class="exec-kpi-lbl">Reagendados</span>
+      <span class="exec-kpi-val">{{ "{:,}".format(k.total_reagendados).replace(",",".") }}</span>
+      <span class="exec-kpi-pct">{{ "%.1f"|format(pct_reag)|replace(".",",") }}%</span>
+    </div>
+    <div class="exec-kpi" style="--kc:#c47b00">
+      <span class="exec-kpi-lbl">Faltas</span>
+      <span class="exec-kpi-val">{{ "{:,}".format(k.total_faltas_ag).replace(",",".") }}</span>
+      <span class="exec-kpi-pct">{{ "%.1f"|format(pct_falt)|replace(".",",") }}%</span>
+    </div>
+  </div>
+
+  {# ── Funil + Perdas ── #}
+  <div class="two-col-charts" style="align-items:stretch">
+
+    <article class="dashboard-card glass">
+      <h3>Funil de Conversão</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 20px">Jornada do agendamento até o atendimento finalizado</p>
+
+      <div style="display:flex;flex-direction:column;gap:0">
+
+        {# ── Estágio 1 — Agendamentos ── #}
+        <div style="background:#185FA5;border-radius:12px 12px 0 0;padding:16px 20px;display:flex;align-items:center;gap:16px">
+          <div style="flex:1">
+            <div style="color:rgba(255,255,255,.75);font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Total Agendamentos</div>
+            <div style="color:#fff;font-size:1.7rem;font-weight:900;line-height:1">{{ "{:,}".format(tot_ag).replace(",",".") }}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="color:#fff;font-size:2.2rem;font-weight:900;line-height:1">100%</div>
+            <div style="color:rgba(255,255,255,.65);font-size:.7rem;margin-top:2px">base do funil</div>
+          </div>
+        </div>
+        {# barra de progresso 100% #}
+        <div style="height:6px;background:#185FA5"><div style="height:100%;width:100%;background:#1876d2"></div></div>
+
+        {# drop 1 #}
+        {% set drop1 = tot_ag - k.total_confirmados %}
+        <div style="background:#f1f5f9;padding:8px 20px;display:flex;align-items:center;gap:8px;border-left:3px solid #e2e8f0;border-right:3px solid #e2e8f0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+          <span style="font-size:.76rem;color:#64748b">
+            <strong style="color:#475569">{{ "{:,}".format(drop1).replace(",",".") }}</strong> sem confirmação explícita
+            <span style="background:#e2e8f0;color:#64748b;border-radius:4px;padding:1px 6px;font-size:.7rem;margin-left:4px">{{ "%.1f"|format(100 - pct_conf)|replace(".",",") }}%</span>
+          </span>
+        </div>
+
+        {# ── Estágio 2 — Confirmados ── #}
+        <div style="background:#3d6b1a;padding:16px 20px;display:flex;align-items:center;gap:16px;border-left:3px solid #e2e8f0;border-right:3px solid #e2e8f0">
+          <div style="flex:1">
+            <div style="color:rgba(255,255,255,.75);font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Confirmados</div>
+            <div style="color:#fff;font-size:1.7rem;font-weight:900;line-height:1">{{ "{:,}".format(k.total_confirmados).replace(",",".") }}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="color:#fff;font-size:2.2rem;font-weight:900;line-height:1">{{ "%.1f"|format(pct_conf)|replace(".",",") }}%</div>
+            <div style="color:rgba(255,255,255,.65);font-size:.7rem;margin-top:2px">do total</div>
+          </div>
+        </div>
+        {# barra de progresso pct_conf% #}
+        <div style="height:6px;background:#c8e6c9;border-left:3px solid #e2e8f0;border-right:3px solid #e2e8f0">
+          <div style="height:100%;width:{{ [pct_conf,100]|min }}%;background:#3d6b1a;transition:width .8s ease"></div>
+        </div>
+
+        {# drop 2 #}
+        {% set drop2 = (k.total_confirmados - k.total_atendimentos) %}
+        <div style="background:#f1f5f9;padding:8px 20px;display:flex;align-items:center;gap:8px;border-left:3px solid #e2e8f0;border-right:3px solid #e2e8f0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+          <span style="font-size:.76rem;color:#64748b">
+            {% if drop2 > 0 %}
+              <strong style="color:#475569">{{ "{:,}".format(drop2).replace(",",".") }}</strong> confirmados não finalizados
+            {% else %}
+              Todos os confirmados foram finalizados
+            {% endif %}
+          </span>
+        </div>
+
+        {# ── Estágio 3 — Finalizados ── #}
+        <div style="background:#2d5a12;border-radius:0 0 12px 12px;padding:16px 20px;display:flex;align-items:center;gap:16px">
+          <div style="flex:1">
+            <div style="color:rgba(255,255,255,.75);font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Finalizados</div>
+            <div style="color:#fff;font-size:1.7rem;font-weight:900;line-height:1">{{ "{:,}".format(k.total_atendimentos).replace(",",".") }}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="color:#fff;font-size:2.2rem;font-weight:900;line-height:1">{{ "%.1f"|format(taxa_conv)|replace(".",",") }}%</div>
+            <div style="color:rgba(255,255,255,.65);font-size:.7rem;margin-top:2px">conversão final</div>
+          </div>
+        </div>
+        {# barra de progresso taxa_conv% #}
+        <div style="height:8px;background:#a5d6a7;border-radius:0 0 4px 4px">
+          <div style="height:100%;width:{{ [taxa_conv,100]|min }}%;background:#2d5a12;border-radius:0 0 4px 4px;transition:width .8s ease"></div>
+        </div>
+
+      </div>
+
+      {# Resumo conversão #}
+      <div style="margin-top:16px;padding:12px 16px;background:var(--surface);border-radius:10px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:.8rem;color:var(--muted)">Conversão geral (Agendamentos → Finalizados)</span>
+        <strong style="font-size:1.05rem;color:{{ conv_color }}">{{ "%.1f"|format(taxa_conv)|replace(".",",") }}%</strong>
+      </div>
+    </article>
+
+    <article class="dashboard-card glass">
+      <h3>Distribuição das Perdas</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 12px">Todos os status exceto Finalizado · Status do Agendamento</p>
+      <div class="chart-wrap-lg"><canvas id="chart-exec-perdas"></canvas></div>
+    </article>
+  </div>
+
+  {# ── Ranking + Perdas (charts largos) ── #}
+  <div class="two-col-charts">
+    <article class="dashboard-card glass">
+      <h3>Ranking — Atendimentos por Profissional</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 12px">Ordenado do maior para o menor · finalizados</p>
+      <div style="height:320px"><canvas id="chart-exec-prof-bar"></canvas></div>
+    </article>
+    <article class="dashboard-card glass">
+      <h3>Perdas por Profissional</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 12px">Ordenado pelo total de perdas · desmarcados + faltas + reagendados</p>
+      <div style="height:320px"><canvas id="chart-exec-perdas-prof"></canvas></div>
+    </article>
+  </div>
+
+  {# ── Tabela Desempenho ── #}
+  <article class="dashboard-card glass">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div>
+        <h3 style="margin:0">Desempenho por Profissional</h3>
+        <p style="font-size:.78rem;color:var(--muted);margin:4px 0 0">Conversão, faltas e desmarcações individuais</p>
+      </div>
+      <div style="display:flex;gap:12px;font-size:.75rem;font-weight:700;color:var(--muted)">
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#3d6b1a;border-radius:2px;display:inline-block"></span>≥ 70%</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#c47b00;border-radius:2px;display:inline-block"></span>50–70%</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#b83030;border-radius:2px;display:inline-block"></span>< 50%</span>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="bi-table bi-table-green">
+        <thead>
+          <tr>
+            <th class="center" style="width:36px">#</th>
+            <th>Profissional</th>
+            <th class="right">Agendamentos</th>
+            <th class="right">Finalizados</th>
+            <th style="min-width:140px">Conversão</th>
+            <th class="right">Faltas</th>
+            <th class="right">Desmarcados</th>
+            <th class="right">Reagendados</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in bi_data.profissionais %}
+          {% set conv = p.taxa_final %}
+          {% set pf   = (p.faltas_ag   / p.total * 100) if p.total else 0 %}
+          {% set pd_  = (p.desmarcados / p.total * 100) if p.total else 0 %}
+          {% set conv_c = "#3d6b1a" if conv >= 70 else ("#c47b00" if conv >= 50 else "#b83030") %}
+          <tr>
+            <td class="center" style="font-size:.78rem;color:var(--muted);font-weight:700">{{ loop.index }}</td>
+            <td style="font-weight:700;font-size:.85rem">{{ p.nome }}</td>
+            <td class="right" style="font-size:.84rem">{{ "{:,}".format(p.total).replace(",",".") }}</td>
+            <td class="right" style="font-weight:700;color:#3d6b1a">{{ "{:,}".format(p.final).replace(",",".") }}</td>
+            <td style="padding:8px 12px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="flex:1">
+                  <div style="display:flex;justify-content:space-between;font-size:.76rem;margin-bottom:3px">
+                    <span style="font-weight:700;color:{{ conv_c }}">{{ "%.1f"|format(conv)|replace(".",",") }}%</span>
+                  </div>
+                  <div class="exec-perf-bar">
+                    <div class="exec-perf-bar-fill" style="width:{{ [conv,100]|min }}%;background:{{ conv_c }}"></div>
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td class="right" style="font-size:.83rem;color:{% if pf <= 10 %}#3d6b1a{% elif pf <= 20 %}#c47b00{% else %}#b83030{% endif %};font-weight:600">
+              {{ "{:,}".format(p.faltas_ag).replace(",",".") }}<br>
+              <span style="font-size:.7rem;font-weight:400;color:var(--muted)">{{ "%.1f"|format(pf)|replace(".",",") }}%</span>
+            </td>
+            <td class="right" style="font-size:.83rem;color:{% if pd_ <= 20 %}#3d6b1a{% elif pd_ <= 30 %}#c47b00{% else %}#b83030{% endif %};font-weight:600">
+              {{ "{:,}".format(p.desmarcados).replace(",",".") }}<br>
+              <span style="font-size:.7rem;font-weight:400;color:var(--muted)">{{ "%.1f"|format(pd_)|replace(".",",") }}%</span>
+            </td>
+            <td class="right" style="font-size:.83rem;color:#185FA5;font-weight:600">
+              {{ "{:,}".format(p.reagendados).replace(",",".") }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+{% else %}
+  <p class="muted" style="padding:32px;text-align:center">Nenhum relatório importado ainda.</p>
+{% endif %}
+</section>
+
+
+{# ═══════════════════════════════════════════════════
+   ABA — DEMOGRÁFICO
+═══════════════════════════════════════════════════ #}
+<section id="tab-demografico" class="bi-panel">
+{% if bi_data %}
+{% set k      = bi_data.kpis %}
+{% set genero = bi_data.genero %}
+{% set fe     = bi_data.faixa_etaria %}
+{% set tot_gen = (genero.feminino + genero.masculino) %}
+{% set pct_fem = (genero.feminino / tot_gen * 100) if tot_gen else 0 %}
+{% set pct_masc = (100 - pct_fem) %}
+{% set media_atend = (k.total_atendimentos / k.total_pacientes) if k.total_pacientes else 0 %}
+
+<style>
+.demo-kpi-strip { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 20px; }
+.demo-kpi { background: var(--card); border: 1.5px solid var(--line); border-radius: 14px; padding: 18px 20px; display: flex; flex-direction: column; gap: 4px; }
+.demo-kpi-icon { font-size: 1.2rem; margin-bottom: 4px; }
+.demo-kpi-lbl { font-size: .69rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+.demo-kpi-val { font-size: 1.75rem; font-weight: 900; color: #111; line-height: 1; }
+.demo-kpi-sub { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+.demo-kpi-badge { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: .72rem; font-weight: 700; margin-top: 4px; }
+.demo-gender-bar { height: 10px; border-radius: 99px; overflow: hidden; display: flex; margin-top: 8px; }
+.demo-gender-f { background: #e879a0; transition: width .7s ease; }
+.demo-gender-m { background: #185FA5; flex: 1; }
+@media (max-width: 900px) { .demo-kpi-strip { grid-template-columns: repeat(2,1fr) !important; } }
+</style>
+
+  {# ── Linha 1: Beneficiários + Atendimentos + Média + Idade média ── #}
+  <div class="demo-kpi-strip">
+    <div class="demo-kpi">
+      <span class="demo-kpi-lbl">Beneficiários Únicos</span>
+      <span class="demo-kpi-val">{{ "{:,}".format(k.total_pacientes).replace(",",".") }}</span>
+      <span class="demo-kpi-sub">pacientes distintos no período</span>
+    </div>
+    <div class="demo-kpi">
+      <span class="demo-kpi-lbl">Total Atendimentos</span>
+      <span class="demo-kpi-val">{{ "{:,}".format(k.total_atendimentos).replace(",",".") }}</span>
+      <span class="demo-kpi-sub">atendimentos finalizados</span>
+    </div>
+    <div class="demo-kpi">
+      <span class="demo-kpi-lbl">Média Atend. / Paciente</span>
+      <span class="demo-kpi-val">{{ "%.1f"|format(media_atend)|replace(".",",") }}</span>
+      <span class="demo-kpi-sub">visitas médias por beneficiário</span>
+    </div>
+    <div class="demo-kpi">
+      <span class="demo-kpi-lbl">Idade Média</span>
+      {% if k.idade_media > 0 %}
+      <span class="demo-kpi-val">{{ "%.1f"|format(k.idade_media)|replace(".",",") }}</span>
+      <span class="demo-kpi-sub">anos (pacientes únicos)</span>
+      {% else %}
+      <span class="demo-kpi-val" style="font-size:1.1rem;color:var(--muted)">—</span>
+      <span class="demo-kpi-sub">reimporte após adicionar coluna</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Linha 2: 60+, 80+, Feminino, Masculino ── #}
+  <div class="demo-kpi-strip" style="margin-top:-8px">
+    <div class="demo-kpi" style="border-left:4px solid #7c3aed">
+      <span class="demo-kpi-lbl">60 anos ou mais</span>
+      {% if k.total_acima_60 > 0 %}
+      <span class="demo-kpi-val">{{ "%.1f"|format(k.pct_acima_60)|replace(".",",") }}%</span>
+      <span class="demo-kpi-sub">{{ "{:,}".format(k.total_acima_60).replace(",",".") }} pacientes</span>
+      {% else %}
+      <span class="demo-kpi-val" style="font-size:1.1rem;color:var(--muted)">—</span>
+      <span class="demo-kpi-sub">disponível após reimporte</span>
+      {% endif %}
+    </div>
+    <div class="demo-kpi" style="border-left:4px solid #9333ea">
+      <span class="demo-kpi-lbl">80 anos ou mais</span>
+      {% if k.total_acima_80 > 0 %}
+      <span class="demo-kpi-val">{{ "%.1f"|format(k.pct_acima_80)|replace(".",",") }}%</span>
+      <span class="demo-kpi-sub">{{ "{:,}".format(k.total_acima_80).replace(",",".") }} pacientes</span>
+      {% else %}
+      <span class="demo-kpi-val" style="font-size:1.1rem;color:var(--muted)">—</span>
+      <span class="demo-kpi-sub">disponível após reimporte</span>
+      {% endif %}
+    </div>
+    <div class="demo-kpi" style="border-left:4px solid #e879a0">
+      <span class="demo-kpi-lbl">Pacientes Femininos</span>
+      <span class="demo-kpi-val">{% if tot_gen > 0 %}{{ "%.1f"|format(pct_fem)|replace(".",",") }}%{% else %}—{% endif %}</span>
+      {% if tot_gen > 0 %}
+      <span class="demo-kpi-sub">{{ "{:,}".format(genero.feminino).replace(",",".") }} pacientes</span>
+      <div class="demo-gender-bar" style="margin-top:8px">
+        <div class="demo-gender-f" style="width:{{ pct_fem }}%"></div>
+        <div class="demo-gender-m"></div>
+      </div>
+      {% else %}
+      <span class="demo-kpi-sub">disponível após reimporte</span>
+      {% endif %}
+    </div>
+    <div class="demo-kpi" style="border-left:4px solid #185FA5">
+      <span class="demo-kpi-lbl">Pacientes Masculinos</span>
+      <span class="demo-kpi-val">{% if tot_gen > 0 %}{{ "%.1f"|format(pct_masc)|replace(".",",") }}%{% else %}—{% endif %}</span>
+      {% if tot_gen > 0 %}
+      <span class="demo-kpi-sub">{{ "{:,}".format(genero.masculino).replace(",",".") }} pacientes</span>
+      <div class="demo-gender-bar" style="margin-top:8px">
+        <div class="demo-gender-f" style="width:{{ pct_fem }}%"></div>
+        <div class="demo-gender-m"></div>
+      </div>
+      {% else %}
+      <span class="demo-kpi-sub">disponível após reimporte</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Charts linha 1: Plano (pacientes únicos) + Faixa Etária ── #}
+  <div class="two-col-charts">
+    <article class="dashboard-card glass">
+      <h3>Distribuição por Plano de Saúde</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 12px">Pacientes únicos por convênio</p>
+      <div class="chart-wrap-lg"><canvas id="chart-demo-plano"></canvas></div>
+    </article>
+    <article class="dashboard-card glass">
+      <h3>Distribuição por Faixa Etária</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 12px">Pacientes únicos por grupo etário</p>
+      <div class="chart-wrap-lg"><canvas id="chart-demo-faixa"></canvas></div>
+    </article>
+  </div>
+
+  {# ── Charts linha 2: Sexo donut + Atendimentos por plano (bar) ── #}
+  <div class="two-col-charts">
+    <article class="dashboard-card glass">
+      <h3>Distribuição por Sexo</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 12px">Pacientes únicos · feminino vs masculino</p>
+      <div class="chart-wrap-lg"><canvas id="chart-demo-sexo"></canvas></div>
+    </article>
+    <article class="dashboard-card glass">
+      <h3>Atendimentos por Plano</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 12px">Atendimentos finalizados por convênio</p>
+      <div style="height:280px"><canvas id="chart-demo-conv-bar"></canvas></div>
+    </article>
+  </div>
+
+  {# ── Localidade: bar + mapa de calor ── #}
+  {% if bi_data.localidade %}
+  <div class="two-col-charts">
+    <article class="dashboard-card glass">
+      <h3>Distribuição por Localidade</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 12px">Atendimentos por bairro/cidade · Top 20</p>
+      <div style="height:340px"><canvas id="chart-demo-localidade"></canvas></div>
+    </article>
+
+    <article class="dashboard-card glass" style="display:flex;flex-direction:column">
+      <h3>Beneficiários por Bairro — Mapa de Calor</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 12px">Geocodificado via OpenStreetMap · cache local</p>
+      <div id="demo-heatmap-loading" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center">
+        <div style="font-size:1.6rem">🗺️</div>
+        <div style="font-size:.82rem;color:var(--muted)" id="demo-heatmap-msg">Clique na aba para carregar o mapa</div>
+        <div style="width:200px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;display:none" id="demo-heatmap-prog-wrap">
+          <div id="demo-heatmap-prog" style="height:100%;background:#3d6b1a;width:0%;transition:width .3s ease"></div>
+        </div>
+      </div>
+      <div id="demo-heatmap" style="height:340px;border-radius:10px;overflow:hidden;display:none"></div>
+      <div id="demo-heatmap-legend" style="display:none;padding:10px 4px 0;display:flex;align-items:center;gap:8px;font-size:.72rem;color:var(--muted)">
+        <span>Menor</span>
+        <div style="flex:1;height:8px;border-radius:4px;background:linear-gradient(to right,#fde8d8,#f97316,#dc2626,#7f1d1d)"></div>
+        <span>Maior</span>
+      </div>
+    </article>
+  </div>
+  {% else %}
+  <article class="dashboard-card glass" style="text-align:center;padding:32px">
+    <div style="font-size:2rem;margin-bottom:8px">📍</div>
+    <h3 style="margin:0 0 8px">Localidade não disponível</h3>
+    <p style="color:var(--muted);font-size:.85rem">Adicione a coluna <strong>Bairro</strong> na planilha e reimporte para ativar a distribuição geográfica.</p>
+  </article>
+  {% endif %}
+
+{% else %}
+  <p class="muted" style="padding:32px;text-align:center">Nenhum relatório importado ainda.</p>
+{% endif %}
+</section>
+
+
+{# ═══════════════════════════════════════════════════
+   ABA — ESPECIALIDADES
+═══════════════════════════════════════════════════ #}
+<section id="tab-especialidades" class="bi-panel">
+{% if bi_data %}
+{% set k = bi_data.kpis %}
+{% set esps = bi_data.especialidades %}
+{% set n_esp = esps | length %}
+{% set media_esp = (k.total_atendimentos / n_esp) if n_esp else 0 %}
+
+  <div class="hero-grid">
+    <article class="hero-card hero-green">
+      <span class="hero-label">Especialidades Ativas</span>
+      <span class="hero-value">{{ n_esp }}</span>
+    </article>
+    <article class="hero-card">
+      <span class="hero-label">Atendimentos (total)</span>
+      <span class="hero-value">{{ "{:,}".format(k.total_atendimentos).replace(",",".") }}</span>
+    </article>
+    <article class="hero-card">
+      <span class="hero-label">Média Atend./Esp.</span>
+      <span class="hero-value">{{ "%.0f"|format(media_esp)|replace(".",",") }}</span>
+    </article>
+    <article class="hero-card">
+      <span class="hero-label">Média Atend./Benef.</span>
+      <span class="hero-value">{{ "%.2f"|format(k.total_atendimentos / k.total_pacientes if k.total_pacientes else 0)|replace(".",",") }}</span>
+    </article>
+    <article class="hero-card">
+      <span class="hero-label">Pacientes Únicos</span>
+      <span class="hero-value">{{ "{:,}".format(k.total_pacientes).replace(",",".") }}</span>
+    </article>
+  </div>
+
+  <div class="two-col-charts">
+    <article class="dashboard-card glass">
+      <h3>Atendimentos por Especialidade</h3>
+      <div class="chart-wrap-lg"><canvas id="chart-esp-bar"></canvas></div>
+    </article>
+    <article class="dashboard-card glass">
+      <h3>Especialidades — Pareto</h3>
+      <div class="chart-wrap-lg"><canvas id="chart-esp-pareto"></canvas></div>
+    </article>
+  </div>
+
+  <div class="two-col-charts">
+    <article class="dashboard-card glass">
+      <h3>Top 10 Profissionais por Atendimentos</h3>
+      <div class="chart-wrap-lg"><canvas id="chart-esp-prof"></canvas></div>
+    </article>
+    <article class="dashboard-card glass">
+      <h3>Taxa de Conversão por Especialidade</h3>
+      <div style="overflow-x:auto">
+        <table class="bi-table bi-table-green">
+          <thead>
+            <tr><th>Especialidade</th><th class="right">Agendados</th><th class="right">Realizados</th><th class="right">Faltas</th><th class="right">Conversão</th><th class="right">% Faltas</th></tr>
+          </thead>
+          <tbody>
+            {% for e in esps %}
+            <tr>
+              <td>{{ e.cat }}</td>
+              <td class="right">{{ "{:,}".format(e.agendados).replace(",",".") }}</td>
+              <td class="right ok">{{ "{:,}".format(e.realizados).replace(",",".") }}</td>
+              <td class="right warn">{{ "{:,}".format(e.faltas).replace(",",".") }}</td>
+              <td class="right {% if e.taxa_atend >= 70 %}ok{% elif e.taxa_atend >= 50 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(e.taxa_atend)|replace(".",",") }}%</td>
+              <td class="right {% if e.taxa_faltas <= 10 %}ok{% elif e.taxa_faltas <= 20 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(e.taxa_faltas)|replace(".",",") }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </div>
+
+{% else %}
+  <p class="muted" style="padding:32px;text-align:center">Nenhum relatório importado ainda.</p>
+{% endif %}
+</section>
+
+
+{# ═══════════════════════════════════════════════════
+   ABA — INDICADORES ESTRATÉGICOS
+═══════════════════════════════════════════════════ #}
+<section id="tab-indicadores" class="bi-panel">
+{% if bi_data %}
+{% set k = bi_data.kpis %}
+{% set taxa_desm2 = (k.total_cancelados / k.total_agendados * 100) if k.total_agendados else 0 %}
+
+  <div class="hero-grid">
+    <article class="hero-card {% if k.taxa_atendimento >= 70 %}hero-green{% elif k.taxa_atendimento >= 50 %}hero-amber{% else %}hero-red{% endif %}">
+      <span class="hero-label">Conversão Geral</span>
+      <span class="hero-value">{{ "%.1f"|format(k.taxa_atendimento)|replace(".",",") }}%</span>
+      <span class="hero-badge {% if k.taxa_atendimento >= 70 %}badge-up{% elif k.taxa_atendimento >= 50 %}badge-amb{% else %}badge-down{% endif %}">Meta: 70%</span>
+    </article>
+    <article class="hero-card {% if k.taxa_faltas <= 10 %}hero-green{% elif k.taxa_faltas <= 20 %}hero-amber{% else %}hero-red{% endif %}">
+      <span class="hero-label">Taxa de Faltas</span>
+      <span class="hero-value">{{ "%.1f"|format(k.taxa_faltas)|replace(".",",") }}%</span>
+      <span class="hero-badge {% if k.taxa_faltas <= 10 %}badge-up{% elif k.taxa_faltas <= 20 %}badge-amb{% else %}badge-down{% endif %}">Meta: ≤ 10%</span>
+    </article>
+    <article class="hero-card {% if taxa_desm2 <= 20 %}hero-green{% elif taxa_desm2 <= 30 %}hero-amber{% else %}hero-red{% endif %}">
+      <span class="hero-label">Taxa Desmarcados</span>
+      <span class="hero-value">{{ "%.1f"|format(taxa_desm2)|replace(".",",") }}%</span>
+      <span class="hero-badge {% if taxa_desm2 <= 20 %}badge-up{% elif taxa_desm2 <= 30 %}badge-amb{% else %}badge-down{% endif %}">Meta: ≤ 20%</span>
+    </article>
+    <article class="hero-card">
+      <span class="hero-label">Total Atendimentos</span>
+      <span class="hero-value">{{ "{:,}".format(k.total_atendimentos).replace(",",".") }}</span>
+    </article>
+    <article class="hero-card">
+      <span class="hero-label">Total Agendados</span>
+      <span class="hero-value">{{ "{:,}".format(k.total_agendados).replace(",",".") }}</span>
+    </article>
+    <article class="hero-card">
+      <span class="hero-label">Pacientes c/ Faltas</span>
+      <span class="hero-value">{{ "{:,}".format(k.pacientes_com_faltas).replace(",",".") }}</span>
+    </article>
+  </div>
+
+  <div class="two-col-charts">
+    {# Gauge de conversão #}
+    <article class="dashboard-card glass" style="align-items:center;text-align:center">
+      <h3>Meta de Conversão</h3>
+      <div style="max-width:280px;margin:0 auto">
+        <canvas id="chart-ind-gauge"></canvas>
+      </div>
+      <p style="font-size:2rem;font-weight:900;margin:8px 0 4px;color:{% if k.taxa_atendimento >= 70 %}#3d6b1a{% elif k.taxa_atendimento >= 50 %}#c47b00{% else %}#b83030{% endif %}">
+        {{ "%.1f"|format(k.taxa_atendimento)|replace(".",",") }}%
+      </p>
+      <p style="font-size:.82rem;color:var(--muted)">Meta: 70% &nbsp;·&nbsp; Agendados: {{ "{:,}".format(k.total_agendados).replace(",",".") }}</p>
+    </article>
+
+    {# Conversão por Profissional #}
+    <article class="dashboard-card glass">
+      <h3>Conversão por Profissional — Top 10</h3>
+      <div class="chart-wrap-lg"><canvas id="chart-ind-conv-prof"></canvas></div>
+    </article>
+  </div>
+
+  <div class="two-col-charts">
+    <article class="dashboard-card glass">
+      <h3>Taxas por Especialidade</h3>
+      <div class="chart-wrap-lg"><canvas id="chart-ind-taxa-esp"></canvas></div>
+    </article>
+    <article class="dashboard-card glass">
+      <h3>Resumo de Taxas</h3>
+      <div style="overflow-x:auto">
+        <table class="bi-table bi-table-green">
+          <thead>
+            <tr><th>Indicador</th><th class="right">Valor</th><th class="right">Meta</th><th class="right">Status</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Conversão Geral</td>
+              <td class="right {% if k.taxa_atendimento >= 70 %}ok{% elif k.taxa_atendimento >= 50 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(k.taxa_atendimento)|replace(".",",") }}%</td>
+              <td class="right muted">≥ 70%</td>
+              <td class="center">{% if k.taxa_atendimento >= 70 %}<span class="hero-badge badge-up">Bom</span>{% elif k.taxa_atendimento >= 50 %}<span class="hero-badge badge-amb">Atenção</span>{% else %}<span class="hero-badge badge-down">Crítico</span>{% endif %}</td>
+            </tr>
+            <tr>
+              <td>Taxa de Faltas</td>
+              <td class="right {% if k.taxa_faltas <= 10 %}ok{% elif k.taxa_faltas <= 20 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(k.taxa_faltas)|replace(".",",") }}%</td>
+              <td class="right muted">≤ 10%</td>
+              <td class="center">{% if k.taxa_faltas <= 10 %}<span class="hero-badge badge-up">Bom</span>{% elif k.taxa_faltas <= 20 %}<span class="hero-badge badge-amb">Atenção</span>{% else %}<span class="hero-badge badge-down">Crítico</span>{% endif %}</td>
+            </tr>
+            <tr>
+              <td>Taxa Desmarcados</td>
+              <td class="right {% if taxa_desm2 <= 20 %}ok{% elif taxa_desm2 <= 30 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(taxa_desm2)|replace(".",",") }}%</td>
+              <td class="right muted">≤ 20%</td>
+              <td class="center">{% if taxa_desm2 <= 20 %}<span class="hero-badge badge-up">Bom</span>{% elif taxa_desm2 <= 30 %}<span class="hero-badge badge-amb">Atenção</span>{% else %}<span class="hero-badge badge-down">Crítico</span>{% endif %}</td>
+            </tr>
+            {% for e in bi_data.especialidades[:5] %}
+            <tr>
+              <td>Conversão — {{ e.cat }}</td>
+              <td class="right {% if e.taxa_atend >= 70 %}ok{% elif e.taxa_atend >= 50 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(e.taxa_atend)|replace(".",",") }}%</td>
+              <td class="right muted">≥ 70%</td>
+              <td class="center">{% if e.taxa_atend >= 70 %}<span class="hero-badge badge-up">Bom</span>{% elif e.taxa_atend >= 50 %}<span class="hero-badge badge-amb">Atenção</span>{% else %}<span class="hero-badge badge-down">Crítico</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </div>
+
+{% else %}
+  <p class="muted" style="padding:32px;text-align:center">Nenhum relatório importado ainda.</p>
+{% endif %}
+</section>
+
+
 {% if user.role in ['admin', 'coordenacao'] %}
 <section id="tab-parametros" class="bi-panel">
 
@@ -879,6 +1724,15 @@ const PERIODO   = BI.periodo?.label || '';
             required
           />
           <span class="param-hint">Usado para calcular a meta diária (meta ÷ dias úteis)</span>
+        </div>
+        <div class="param-field">
+          <label class="param-label" for="p-cidade">Cidade para geocodificação do mapa</label>
+          <input
+            class="param-input" type="text" id="p-cidade" name="cidade_geocoding"
+            placeholder="ex: Brasília, DF, Brasil"
+            value="{{ bi_cfg.cidade_geocoding or 'Brasília, DF, Brasil' }}"
+          />
+          <span class="param-hint">Contexto para localizar os bairros no mapa de calor (aba Demográfico)</span>
         </div>
       </div>
 
@@ -980,6 +1834,21 @@ function mkChart(id, cfg) {
   const el = document.getElementById(id);
   if (!el) return;
   charts[id] = new Chart(el, cfg);
+}
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+function loadStyle(href) {
+  if (document.querySelector(`link[href="${href}"]`)) return;
+  const l = document.createElement('link');
+  l.rel = 'stylesheet'; l.href = href;
+  document.head.appendChild(l);
 }
 
 function fmtBR(v) { return 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}); }
@@ -1180,6 +2049,605 @@ function initAtendentes() {
   });
 }
 
+/* ─── Tab: Listagem ─── */
+const lstState = { page: 1, pages: 1, period: '{{ current_period or "" }}' };
+
+function fmtBRVal(v) {
+  return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function lstFiltros() {
+  return {
+    convenio:     document.getElementById('lst-convenio')?.value     || '',
+    unidade:      document.getElementById('lst-unidade')?.value      || '',
+    profissional: document.getElementById('lst-profissional')?.value || '',
+    faturado:     document.getElementById('lst-faturado')?.value     || '',
+  };
+}
+
+function lstUrlParams(page, extra = {}) {
+  const f = lstFiltros();
+  const p = new URLSearchParams();
+  if (lstState.period) p.set('period', lstState.period);
+  if (f.convenio)     p.set('convenio',     f.convenio);
+  if (f.unidade)      p.set('unidade',      f.unidade);
+  if (f.profissional) p.set('profissional', f.profissional);
+  if (f.faturado)     p.set('faturado',     f.faturado);
+  if (page > 1)        p.set('page', page);
+  Object.entries(extra).forEach(([k,v]) => p.set(k,v));
+  return p.toString();
+}
+
+async function lstBuscar(page = 1) {
+  const tbody = document.getElementById('lst-tbody');
+  const sumEl = document.getElementById('lst-summary');
+  tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--muted)">Carregando…</td></tr>';
+
+  const qs  = lstUrlParams(page);
+  const res = await fetch('/bi/listagem?' + qs).then(r => r.json()).catch(() => null);
+
+  if (!res || !res.ok) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#b83030">Erro ao carregar dados. Reimporte a planilha para popular a listagem.</td></tr>';
+    return;
+  }
+
+  lstState.page  = res.page;
+  lstState.pages = res.pages;
+
+  // Summary cards
+  document.getElementById('lst-total-cnt').textContent = res.total.toLocaleString('pt-BR');
+  document.getElementById('lst-total-val').textContent = fmtBRVal(res.soma_total);
+  document.getElementById('lst-fat-val').textContent   = fmtBRVal(res.soma_faturado);
+  document.getElementById('lst-afat-val').textContent  = fmtBRVal(res.soma_a_faturar);
+  if (sumEl) sumEl.style.display = '';
+
+  // Tabela
+  if (!res.rows.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--muted)">Nenhum registro encontrado.</td></tr>';
+  } else {
+    tbody.innerHTML = res.rows.map(r => {
+      const fatBadge = r.faturado
+        ? '<span class="lst-badge-fat">Faturado</span>'
+        : '<span class="lst-badge-noFat">A Faturar</span>';
+      const dataFmt = r.data_atend ? r.data_atend.split('-').reverse().join('/') : '—';
+      const stLabel = { realizado:'Realizado', falta:'Falta', cancelado:'Cancelado', agendado:'Agendado' }[r.status] || r.status || '—';
+      return `<tr>
+        <td style="white-space:nowrap">${dataFmt}</td>
+        <td>${r.paciente || '—'}</td>
+        <td>${r.profissional || '—'}</td>
+        <td>${r.especialidade || '—'}</td>
+        <td>${r.convenio || '—'}</td>
+        <td>${r.unidade || '—'}</td>
+        <td class="right">${r.valor > 0 ? fmtBRVal(r.valor) : '—'}</td>
+        <td class="center">${fatBadge}</td>
+        <td style="font-size:.78rem;color:var(--muted)">${r.protocolo_lote || '—'}</td>
+        <td style="font-size:.78rem">${stLabel}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // Paginação
+  const pag   = document.getElementById('lst-pagination');
+  const info  = document.getElementById('lst-page-info');
+  const prev  = document.getElementById('lst-prev');
+  const next  = document.getElementById('lst-next');
+  if (pag) {
+    pag.style.display = res.pages > 1 ? '' : 'none';
+    if (info) info.textContent = `Página ${res.page} de ${res.pages} · ${res.total.toLocaleString('pt-BR')} registros`;
+    if (prev) prev.disabled = res.page <= 1;
+    if (next) next.disabled = res.page >= res.pages;
+  }
+}
+
+function lstExportar(e) {
+  e.preventDefault();
+  const qs = lstUrlParams(1, { per_page: 50000 });
+  window.location.href = '/bi/listagem/export?' + qs;
+}
+
+async function initListagem() {
+  const qs = lstState.period ? `?period=${lstState.period}` : '';
+
+  // Popula convênios
+  const conv = document.getElementById('lst-convenio');
+  if (conv) {
+    const res = await fetch('/bi/listagem/convenios' + qs).then(r => r.json()).catch(() => null);
+    if (res?.items) {
+      res.items.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = c;
+        conv.appendChild(opt);
+      });
+    }
+  }
+
+  // Popula profissionais
+  const prof = document.getElementById('lst-profissional');
+  if (prof) {
+    const res = await fetch('/bi/listagem/profissionais' + qs).then(r => r.json()).catch(() => null);
+    if (res?.items) {
+      res.items.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = p;
+        prof.appendChild(opt);
+      });
+    }
+  }
+}
+
+/* ─── Tab: Executivo ─── */
+function initExecutivo() {
+  const profs  = (BI.profissionais || []).slice(0, 15);
+  const perdas = BI.perdas_distribuicao || {};
+
+  // ── Distribuição das perdas — donut com % e quantidade
+  const perdasLabels = Object.keys(perdas);
+  const perdasVals   = Object.values(perdas);
+  const perdasTotal  = perdasVals.reduce((a, b) => a + b, 0);
+  mkChart('chart-exec-perdas', {
+    type: 'doughnut',
+    data: {
+      labels: perdasLabels,
+      datasets: [{ data: perdasVals, backgroundColor: PALETA, borderWidth: 2, borderColor: '#fff', hoverOffset: 8 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '52%',
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 10 } },
+        datalabels: {
+          color: '#fff',
+          font: { size: 11, weight: 'bold' },
+          formatter: (val) => {
+            if (!perdasTotal || val / perdasTotal < 0.04) return '';
+            return val.toLocaleString('pt-BR') + '\n' + (val / perdasTotal * 100).toFixed(1) + '%';
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const pct = perdasTotal > 0 ? (ctx.raw / perdasTotal * 100).toFixed(1) : '0.0';
+              return ` ${ctx.label}: ${ctx.raw.toLocaleString('pt-BR')} (${pct}%)`;
+            }
+          }
+        }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+
+  // ── Ranking — bar horizontal por finalizados (maior → menor) com quantidade
+  const rankProfs = [...profs].sort((a, b) => b.final - a.final);
+  mkChart('chart-exec-prof-bar', {
+    type: 'bar',
+    data: {
+      labels: rankProfs.map(p => p.nome.substring(0, 26)),
+      datasets: [{
+        label: 'Finalizados',
+        data: rankProfs.map(p => p.final),
+        backgroundColor: C_GREEN,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          anchor: 'end', align: 'start',
+          color: '#fff',
+          font: { size: 11, weight: 'bold' },
+          formatter: val => val > 0 ? val.toLocaleString('pt-BR') : ''
+        },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.raw.toLocaleString('pt-BR')} finalizados` } }
+      },
+      scales: {
+        x: { beginAtZero: true, grid: { color: 'rgba(21,21,21,.05)' }, ticks: { display: false } },
+        y: { grid: { display: false } }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+
+  // ── Perdas por profissional — ordenado pelo total de perdas (desc) + quantidade
+  const perdasProfs = [...profs]
+    .map(p => ({ ...p, totalPerdas: (p.desmarcados||0) + (p.faltas_ag||0) + (p.reagendados||0) }))
+    .filter(p => p.totalPerdas > 0)
+    .sort((a, b) => b.totalPerdas - a.totalPerdas)
+    .slice(0, 15);
+
+  mkChart('chart-exec-perdas-prof', {
+    type: 'bar',
+    data: {
+      labels: perdasProfs.map(p => p.nome.substring(0, 20)),
+      datasets: [
+        {
+          label: 'Desmarcados',
+          data: perdasProfs.map(p => p.desmarcados || 0),
+          backgroundColor: C_RED, borderRadius: 2,
+        },
+        {
+          label: 'Faltas',
+          data: perdasProfs.map(p => p.faltas_ag || 0),
+          backgroundColor: C_AMBER, borderRadius: 2,
+        },
+        {
+          label: 'Reagendados',
+          data: perdasProfs.map(p => p.reagendados || 0),
+          backgroundColor: C_BLUE, borderRadius: 2,
+        },
+      ]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top' },
+        datalabels: {
+          anchor: 'center', align: 'center',
+          color: '#fff',
+          font: { size: 10, weight: 'bold' },
+          formatter: val => val > 0 ? val.toLocaleString('pt-BR') : ''
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.raw.toLocaleString('pt-BR')}`
+          }
+        }
+      },
+      scales: {
+        x: { beginAtZero: true, stacked: true, grid: { color: 'rgba(21,21,21,.05)' } },
+        y: { stacked: true, grid: { display: false } }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+}
+
+/* ─── Tab: Demográfico ─── */
+function initDemografico() {
+  const convs       = (BI.convenios    || []).slice(0, 12);
+  const convPac     = BI.convenios_pacientes || {};
+  const faixas      = BI.faixa_etaria  || {};
+  const genero      = BI.genero        || { feminino: 0, masculino: 0 };
+  const localidade  = BI.localidade    || {};
+
+  // ── Plano (pacientes únicos) — donut com datalabels
+  const planoLabels = Object.keys(convPac).length
+    ? Object.keys(convPac).slice(0, 12)
+    : convs.map(c => c.nome.substring(0, 22));
+  const planoVals = Object.keys(convPac).length
+    ? Object.values(convPac).slice(0, 12)
+    : convs.map(c => c.final);
+  const planoTotal = planoVals.reduce((a, b) => a + b, 0);
+
+  mkChart('chart-demo-plano', {
+    type: 'doughnut',
+    data: {
+      labels: planoLabels,
+      datasets: [{ data: planoVals, backgroundColor: PALETA, borderWidth: 2, borderColor: '#fff', hoverOffset: 8 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '52%',
+      plugins: {
+        legend: { position: 'right', labels: { font: { size: 11 }, padding: 10, boxWidth: 12 } },
+        datalabels: {
+          color: '#fff', font: { size: 10, weight: 'bold' },
+          formatter: (val) => {
+            if (!planoTotal || val / planoTotal < 0.05) return '';
+            return (val / planoTotal * 100).toFixed(1) + '%';
+          }
+        },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw.toLocaleString('pt-BR')} (${planoTotal ? (ctx.raw/planoTotal*100).toFixed(1) : 0}%)` } }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+
+  // ── Faixa etária — bar horizontal com gradiente de cor por grupo
+  const faixaOrder  = ['Até 29', '30-39', '40-49', '50-59', '60-79', '80+'];
+  const faixaLabels = faixaOrder.filter(l => faixas[l] !== undefined);
+  const faixaVals   = faixaLabels.map(l => faixas[l] || 0);
+  const faixaColors = ['#60a5fa','#3b82f6','#2563eb','#1d4ed8','#7c3aed','#9333ea'];
+
+  mkChart('chart-demo-faixa', {
+    type: 'bar',
+    data: {
+      labels: faixaLabels,
+      datasets: [{ label: 'Pacientes', data: faixaVals, backgroundColor: faixaColors.slice(0, faixaLabels.length), borderRadius: 6 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          anchor: 'end', align: 'start', color: '#fff', font: { size: 11, weight: 'bold' },
+          formatter: val => val > 0 ? val.toLocaleString('pt-BR') : ''
+        },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.raw.toLocaleString('pt-BR')} pacientes` } }
+      },
+      scales: {
+        x: { beginAtZero: true, grid: { color: 'rgba(21,21,21,.05)' }, ticks: { display: false } },
+        y: { grid: { display: false } }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+
+  // ── Sexo — donut com totais centrais via plugin
+  const totGen = genero.feminino + genero.masculino;
+  mkChart('chart-demo-sexo', {
+    type: 'doughnut',
+    data: {
+      labels: ['Feminino', 'Masculino'],
+      datasets: [{ data: [genero.feminino, genero.masculino], backgroundColor: ['#e879a0', '#185FA5'], borderWidth: 3, borderColor: '#fff', hoverOffset: 8 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '60%',
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 12 }, padding: 16, boxWidth: 14 } },
+        datalabels: {
+          color: '#fff', font: { size: 12, weight: 'bold' },
+          formatter: (val) => {
+            if (!totGen || val / totGen < 0.05) return '';
+            return val.toLocaleString('pt-BR') + '\n' + (val/totGen*100).toFixed(1) + '%';
+          }
+        },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw.toLocaleString('pt-BR')} (${totGen ? (ctx.raw/totGen*100).toFixed(1) : 0}%)` } }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+
+  // ── Atendimentos por plano — bar horizontal
+  const convTop = convs.sort((a, b) => b.final - a.final).slice(0, 12);
+  mkChart('chart-demo-conv-bar', {
+    type: 'bar',
+    data: {
+      labels: convTop.map(c => c.nome.substring(0, 24)),
+      datasets: [{ label: 'Atendimentos', data: convTop.map(c => c.final), backgroundColor: C_GREEN, borderRadius: 5 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          anchor: 'end', align: 'start', color: '#fff', font: { size: 10, weight: 'bold' },
+          formatter: val => val > 0 ? val.toLocaleString('pt-BR') : ''
+        },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.raw.toLocaleString('pt-BR')} atendimentos` } }
+      },
+      scales: {
+        x: { beginAtZero: true, grid: { color: 'rgba(21,21,21,.05)' }, ticks: { display: false } },
+        y: { grid: { display: false } }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+
+  // ── Localidade — bar horizontal (bairro/cidade)
+  if (Object.keys(localidade).length) {
+    const locLabels = Object.keys(localidade).slice(0, 20);
+    const locVals   = locLabels.map(k => localidade[k]);
+    mkChart('chart-demo-localidade', {
+      type: 'bar',
+      data: {
+        labels: locLabels,
+        datasets: [{ label: 'Atendimentos', data: locVals, backgroundColor: C_BLUE, borderRadius: 5 }]
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            anchor: 'end', align: 'start', color: '#fff', font: { size: 10, weight: 'bold' },
+            formatter: val => val > 0 ? val.toLocaleString('pt-BR') : ''
+          },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.raw.toLocaleString('pt-BR')} atendimentos` } }
+        },
+        scales: {
+          x: { beginAtZero: true, grid: { color: 'rgba(21,21,21,.05)' }, ticks: { display: false } },
+          y: { grid: { display: false } }
+        }
+      },
+      plugins: [ChartDataLabels]
+    });
+
+    // Inicia o mapa de calor (carrega Leaflet dinamicamente)
+    initDemoHeatmap(localidade);
+  }
+}
+
+async function initDemoHeatmap(localidade) {
+  const mapDiv   = document.getElementById('demo-heatmap');
+  const loading  = document.getElementById('demo-heatmap-loading');
+  const msgEl    = document.getElementById('demo-heatmap-msg');
+  const progWrap = document.getElementById('demo-heatmap-prog-wrap');
+  const prog     = document.getElementById('demo-heatmap-prog');
+  const legend   = document.getElementById('demo-heatmap-legend');
+  if (!mapDiv) return;
+
+  // Carrega CSS e JS do Leaflet + plugin heat
+  loadStyle('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+  await loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
+  await loadScript('https://unpkg.com/leaflet.heat/dist/leaflet-heat.js');
+
+  // Contexto geográfico (cidade da clínica)
+  const CITY_CTX  = '{{ bi_cfg.cidade_geocoding if bi_cfg and bi_cfg.cidade_geocoding else "Brasília, DF, Brasil" }}';
+  const CACHE_KEY = 'bi_geo_v1';
+  let   cache     = {};
+  try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch(_) {}
+
+  const entries = Object.entries(localidade).sort((a, b) => b[1] - a[1]).slice(0, 25);
+  const missing = entries.filter(([bairro]) => !cache[bairro.toLowerCase()]);
+
+  if (missing.length) {
+    if (msgEl)    msgEl.textContent = `Geocodificando ${missing.length} bairro(s)...`;
+    if (progWrap) progWrap.style.display = 'block';
+  }
+
+  for (let i = 0; i < missing.length; i++) {
+    const [bairro] = missing[i];
+    const key = bairro.toLowerCase();
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(bairro + ', ' + CITY_CTX)}&format=json&limit=1&accept-language=pt-BR`;
+      const data = await fetch(url).then(r => r.json());
+      if (data && data[0]) {
+        cache[key] = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      }
+    } catch(_) {}
+    if (prog) prog.style.width = ((i + 1) / missing.length * 100) + '%';
+    if (i < missing.length - 1) await new Promise(r => setTimeout(r, 1150)); // respeita rate limit
+  }
+
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch(_) {}
+
+  // Monta pontos para o heatmap [lat, lng, intensidade]
+  const maxVal = entries[0]?.[1] || 1;
+  const points = [];
+  for (const [bairro, count] of entries) {
+    const coords = cache[bairro.toLowerCase()];
+    if (coords) points.push([coords.lat, coords.lng, count / maxVal]);
+  }
+
+  if (!points.length) {
+    if (msgEl) msgEl.textContent = 'Nenhuma coordenada encontrada. Verifique os nomes dos bairros.';
+    return;
+  }
+
+  // Exibe o mapa
+  if (loading) loading.style.display = 'none';
+  if (legend)  legend.style.display  = 'flex';
+  mapDiv.style.display = 'block';
+
+  const map = L.map(mapDiv, { zoomControl: true, scrollWheelZoom: false });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+    maxZoom: 18
+  }).addTo(map);
+
+  L.heatLayer(points, {
+    radius: 40,
+    blur: 30,
+    maxZoom: 15,
+    max: 1,
+    gradient: { 0.1: '#fde8d8', 0.4: '#fdba74', 0.65: '#f97316', 0.85: '#dc2626', 1.0: '#7f1d1d' }
+  }).addTo(map);
+
+  const bounds = L.latLngBounds(points.map(p => [p[0], p[1]]));
+  map.fitBounds(bounds, { padding: [40, 40] });
+}
+
+/* ─── Tab: Especialidades ─── */
+function initEspecialidades() {
+  const esps  = (BI.especialidades || []).slice(0, 15);
+  const profs = (BI.profissionais  || []).slice(0, 10);
+
+  // Bar especialidades
+  mkChart('chart-esp-bar', {
+    type: 'bar',
+    data: {
+      labels: esps.map(e => e.cat.substring(0,28)),
+      datasets: [{ label: 'Atendimentos', data: esps.map(e => e.realizados), backgroundColor: C_GREEN, borderRadius: 4 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, grid: { color: 'rgba(21,21,21,.05)' } }, y: { grid: { display: false } } }
+    }
+  });
+
+  // Pareto — bar + line acumulado
+  const sorted    = [...esps].sort((a,b) => b.realizados - a.realizados);
+  const total     = sorted.reduce((s,e) => s + e.realizados, 0) || 1;
+  let  acum = 0;
+  const acumPct   = sorted.map(e => { acum += e.realizados; return +(acum / total * 100).toFixed(1); });
+  mkChart('chart-esp-pareto', {
+    type: 'bar',
+    data: {
+      labels: sorted.map(e => e.cat.substring(0,20)),
+      datasets: [
+        { type: 'bar',  label: 'Atendimentos', data: sorted.map(e => e.realizados), backgroundColor: C_BLUE, borderRadius: 4, yAxisID: 'y' },
+        { type: 'line', label: '% Acumulado',  data: acumPct, borderColor: C_RED, borderWidth: 2, pointRadius: 3, tension: 0.2, fill: false, yAxisID: 'y2' },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: {
+        y:  { beginAtZero: true, position: 'left',  grid: { color: 'rgba(21,21,21,.05)' } },
+        y2: { beginAtZero: true, max: 100, position: 'right', grid: { display: false }, ticks: { callback: v => v + '%' } },
+        x:  { grid: { display: false } }
+      }
+    }
+  });
+
+  // Top profissionais
+  mkChart('chart-esp-prof', {
+    type: 'bar',
+    data: {
+      labels: profs.map(p => p.nome.substring(0,22)),
+      datasets: [{ label: 'Atendimentos', data: profs.map(p => p.final), backgroundColor: C_GREEN, borderRadius: 4 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, grid: { color: 'rgba(21,21,21,.05)' } }, y: { grid: { display: false } } }
+    }
+  });
+}
+
+/* ─── Tab: Indicadores ─── */
+function initIndicadores() {
+  const profs = (BI.profissionais || []).slice(0, 10);
+  const esps  = (BI.especialidades || []).slice(0, 10);
+  const conv  = BI.kpis?.taxa_atendimento || 0;
+
+  // Gauge de conversão — donut semiCircular
+  mkChart('chart-ind-gauge', {
+    type: 'doughnut',
+    data: {
+      labels: ['Conversão', 'Restante'],
+      datasets: [{ data: [conv, Math.max(0, 100 - conv)], backgroundColor: [conv >= 70 ? C_GREEN : conv >= 50 ? C_AMBER : C_RED, '#e5e7eb'], borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      circumference: 180, rotation: -90, cutout: '70%',
+      plugins: { legend: { display: false }, tooltip: { enabled: false } }
+    }
+  });
+
+  // Conversão por profissional
+  const convProfs = [...profs].sort((a,b) => (b.taxa_final||0) - (a.taxa_final||0));
+  mkChart('chart-ind-conv-prof', {
+    type: 'bar',
+    data: {
+      labels: convProfs.map(p => p.nome.substring(0,22)),
+      datasets: [{ label: 'Conversão %', data: convProfs.map(p => p.taxa_final || 0), backgroundColor: convProfs.map(p => (p.taxa_final||0) >= 70 ? C_GREEN : (p.taxa_final||0) >= 50 ? C_AMBER : C_RED), borderRadius: 4 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + ctx.raw.toFixed(1) + '%' } } },
+      scales: { x: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' }, grid: { color: 'rgba(21,21,21,.05)' } }, y: { grid: { display: false } } }
+    }
+  });
+
+  // Taxas por especialidade
+  mkChart('chart-ind-taxa-esp', {
+    type: 'bar',
+    data: {
+      labels: esps.map(e => e.cat.substring(0,20)),
+      datasets: [
+        { label: 'Conversão %', data: esps.map(e => e.taxa_atend  || 0), backgroundColor: C_GREEN, borderRadius: 4, stack: 'taxa' },
+        { label: 'Faltas %',    data: esps.map(e => e.taxa_faltas || 0), backgroundColor: C_AMBER, borderRadius: 4, stack: 'taxa' },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: ctx => ' ' + ctx.raw.toFixed(1) + '%' } } },
+      scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { callback: v => v + '%' }, grid: { color: 'rgba(21,21,21,.05)' } } }
+    }
+  });
+}
+
 /* ─── Lógica de abas ─── */
 const TAB_INITS = {
   'tab-dashboard':    initDashboard,
@@ -1188,6 +2656,11 @@ const TAB_INITS = {
   'tab-convenios':    initConvenios,
   'tab-atendentes':   initAtendentes,
   'tab-unidades':     initUnidades,
+  'tab-listagem':     initListagem,
+  'tab-executivo':    initExecutivo,
+  'tab-demografico':  initDemografico,
+  'tab-especialidades': initEspecialidades,
+  'tab-indicadores':  initIndicadores,
 };
 
 const _biActions = document.querySelector('.bi-period-actions');
@@ -1364,8 +2837,9 @@ async function saveParams(e) {
   btn.disabled = true;
   btn.textContent = 'Salvando…';
   const fd = new FormData();
-  fd.append('meta_mensal',    parseBRL(document.getElementById('p-meta')?.value));
-  fd.append('dias_uteis_mes', parseFloat(document.getElementById('p-dias')?.value) || 22);
+  fd.append('meta_mensal',       parseBRL(document.getElementById('p-meta')?.value));
+  fd.append('dias_uteis_mes',    parseFloat(document.getElementById('p-dias')?.value) || 22);
+  fd.append('cidade_geocoding',  (document.getElementById('p-cidade')?.value || '').trim());
   try {
     const r = await fetch('/bi/parametros', { method: 'POST', body: fd });
     const d = await r.json();
