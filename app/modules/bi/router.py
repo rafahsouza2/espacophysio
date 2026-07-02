@@ -267,10 +267,12 @@ async def bi_listagem_export(
     faturado:     str = None,
     user=Depends(require_auth),
 ):
-    """Exporta a listagem filtrada como CSV."""
+    """Exporta a listagem filtrada como Excel (.xlsx)."""
     import io as _io
-    import csv as _csv
     from fastapi.responses import StreamingResponse
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
 
     if isinstance(user, RedirectResponse):
         return user
@@ -293,20 +295,92 @@ async def bi_listagem_export(
         res  = qb.order("data_atend", desc=True).limit(50000).execute()
         rows = res.data or []
 
-        buf = _io.StringIO()
-        writer = _csv.DictWriter(buf, fieldnames=[
-            "data_atend","paciente","profissional","especialidade",
-            "convenio","unidade","valor","faturado","protocolo_lote","status"
-        ])
-        writer.writeheader()
-        for r in rows:
-            r["faturado"] = "Sim" if r.get("faturado") else "Não"
-            writer.writerow(r)
+        # ── Monta o workbook ──────────────────────────────────────────
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Listagem de Produção"
 
-        fname = f"listagem_{period or 'todos'}.csv"
+        COLS = [
+            ("Data",          "data_atend",     14),
+            ("Paciente",      "paciente",        30),
+            ("Profissional",  "profissional",    24),
+            ("Especialidade", "especialidade",   22),
+            ("Convênio",      "convenio",        22),
+            ("Unidade",       "unidade",         20),
+            ("Valor (R$)",    "valor",           14),
+            ("Faturado",      "faturado",        12),
+            ("Protocolo Lote","protocolo_lote",  18),
+            ("Status",        "status",          14),
+        ]
+
+        # Estilo do cabeçalho
+        hdr_fill   = PatternFill("solid", fgColor="3D6B1A")
+        hdr_font   = Font(bold=True, color="FFFFFF", size=11)
+        hdr_align  = Alignment(horizontal="center", vertical="center")
+        thin_side  = Side(style="thin", color="CCCCCC")
+        cell_border = Border(left=thin_side, right=thin_side, bottom=thin_side)
+
+        for col_idx, (header, _, width) in enumerate(COLS, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.fill   = hdr_fill
+            cell.font   = hdr_font
+            cell.alignment = hdr_align
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+        ws.row_dimensions[1].height = 22
+        ws.freeze_panes = "A2"
+
+        # Estilo zebra
+        fill_even = PatternFill("solid", fgColor="F5FAF2")
+        fill_odd  = PatternFill("solid", fgColor="FFFFFF")
+        fat_font  = Font(color="1A5C0D", bold=True)
+        nfat_font = Font(color="B83030")
+
+        for row_idx, r in enumerate(rows, start=2):
+            zebra = fill_even if row_idx % 2 == 0 else fill_odd
+            for col_idx, (_, field, _) in enumerate(COLS, start=1):
+                val = r.get(field)
+                if field == "data_atend" and val:
+                    val = str(val)[:10].split("-")
+                    val = f"{val[2]}/{val[1]}/{val[0]}" if len(val) == 3 else r.get(field)
+                elif field == "faturado":
+                    val = "Sim" if r.get("faturado") else "Não"
+                elif field == "valor":
+                    try: val = float(val or 0)
+                    except: val = 0.0
+                elif val is None:
+                    val = ""
+
+                cell = ws.cell(row=row_idx, column=col_idx, value=val)
+                cell.fill   = zebra
+                cell.border = cell_border
+                cell.alignment = Alignment(vertical="center")
+
+                if field == "valor":
+                    cell.number_format = '#,##0.00'
+                if field == "faturado":
+                    cell.font = fat_font if r.get("faturado") else nfat_font
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Linha de totais
+        tot_row = len(rows) + 2
+        ws.cell(row=tot_row, column=1, value="TOTAL").font = Font(bold=True)
+        tot_cell = ws.cell(row=tot_row, column=7,
+                           value=f"=SUM(G2:G{len(rows)+1})")
+        tot_cell.number_format = '#,##0.00'
+        tot_cell.font = Font(bold=True, color="1A5C0D")
+
+        # Auto-filter
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(COLS))}1"
+
+        buf = _io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        fname = f"listagem_{period or 'todos'}.xlsx"
         return StreamingResponse(
-            iter([buf.getvalue()]),
-            media_type="text/csv; charset=utf-8",
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{fname}"'},
         )
     except Exception as e:
