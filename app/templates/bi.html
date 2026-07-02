@@ -1354,6 +1354,7 @@ const PERIODO   = BI.periodo?.label || '';
 .demo-gender-f { background: #e879a0; transition: width .7s ease; }
 .demo-gender-m { background: #185FA5; flex: 1; }
 @media (max-width: 900px) { .demo-kpi-strip { grid-template-columns: repeat(2,1fr) !important; } }
+.demo-map-tooltip .leaflet-tooltip { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
 </style>
 
   {# ── Linha 1: Beneficiários + Atendimentos + Média + Idade média ── #}
@@ -1463,31 +1464,46 @@ const PERIODO   = BI.periodo?.label || '';
     </article>
   </div>
 
-  {# ── Localidade: bar + mapa de calor ── #}
+  {# ── Localidade ── #}
   {% if bi_data.localidade %}
   <div class="two-col-charts">
     <article class="dashboard-card glass">
       <h3>Distribuição por Localidade</h3>
       <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 12px">Atendimentos por bairro/cidade · Top 20</p>
-      <div style="height:340px"><canvas id="chart-demo-localidade"></canvas></div>
+      <div style="height:360px"><canvas id="chart-demo-localidade"></canvas></div>
     </article>
 
-    <article class="dashboard-card glass" style="display:flex;flex-direction:column">
-      <h3>Beneficiários por Bairro — Mapa de Calor</h3>
-      <p style="font-size:.78rem;color:var(--muted);margin:-4px 0 12px">Geocodificado via OpenStreetMap · cache local</p>
-      <div id="demo-heatmap-loading" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center">
-        <div style="font-size:1.6rem">🗺️</div>
-        <div style="font-size:.82rem;color:var(--muted)" id="demo-heatmap-msg">Clique na aba para carregar o mapa</div>
-        <div style="width:200px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;display:none" id="demo-heatmap-prog-wrap">
-          <div id="demo-heatmap-prog" style="height:100%;background:#3d6b1a;width:0%;transition:width .3s ease"></div>
+    <article class="dashboard-card glass" style="display:flex;flex-direction:column;min-height:420px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+        <div>
+          <h3 style="margin:0">Beneficiários por Bairro</h3>
+          <p style="font-size:.78rem;color:var(--muted);margin:4px 0 0">Tamanho do círculo = volume de atendimentos · passe o mouse para detalhes</p>
+        </div>
+        <div id="demo-heatmap-prog-wrap" style="display:none;flex-direction:column;align-items:flex-end;gap:4px">
+          <span id="demo-heatmap-msg" style="font-size:.72rem;color:var(--muted)">Geocodificando...</span>
+          <div style="width:120px;height:3px;background:var(--line);border-radius:2px;overflow:hidden">
+            <div id="demo-heatmap-prog" style="height:100%;background:#3d6b1a;width:0%;transition:width .3s ease"></div>
+          </div>
         </div>
       </div>
-      <div id="demo-heatmap" style="height:340px;border-radius:10px;overflow:hidden;display:none"></div>
-      <div id="demo-heatmap-legend" style="display:none;padding:10px 4px 0;display:flex;align-items:center;gap:8px;font-size:.72rem;color:var(--muted)">
-        <span>Menor</span>
-        <div style="flex:1;height:8px;border-radius:4px;background:linear-gradient(to right,#fde8d8,#f97316,#dc2626,#7f1d1d)"></div>
-        <span>Maior</span>
+
+      {# Legenda de escala #}
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:6px;font-size:.72rem;color:var(--muted)">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fdba74;border:1.5px solid #f97316"></span> Baixo volume
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:.72rem;color:var(--muted)">
+          <span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#f97316;border:1.5px solid #dc2626"></span> Médio
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:.72rem;color:var(--muted)">
+          <span style="display:inline-block;width:24px;height:24px;border-radius:50%;background:#dc2626;border:1.5px solid #7f1d1d"></span> Alto volume
+        </div>
       </div>
+
+      <div id="demo-heatmap-loading" style="flex:1;display:flex;align-items:center;justify-content:center">
+        <span style="font-size:.82rem;color:var(--muted)">Carregando mapa...</span>
+      </div>
+      <div id="demo-heatmap" style="flex:1;min-height:320px;border-radius:10px;overflow:hidden;display:none;border:1px solid var(--line)"></div>
     </article>
   </div>
   {% else %}
@@ -2462,78 +2478,109 @@ async function initDemoHeatmap(localidade) {
   const msgEl    = document.getElementById('demo-heatmap-msg');
   const progWrap = document.getElementById('demo-heatmap-prog-wrap');
   const prog     = document.getElementById('demo-heatmap-prog');
-  const legend   = document.getElementById('demo-heatmap-legend');
   if (!mapDiv) return;
 
-  // Carrega CSS e JS do Leaflet + plugin heat
+  // Carrega Leaflet (sem leaflet-heat — usando bubble map)
   loadStyle('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
   await loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
-  await loadScript('https://unpkg.com/leaflet.heat/dist/leaflet-heat.js');
 
-  // Contexto geográfico (cidade da clínica)
   const CITY_CTX  = '{{ bi_cfg.cidade_geocoding if bi_cfg and bi_cfg.cidade_geocoding else "Brasília, DF, Brasil" }}';
-  const CACHE_KEY = 'bi_geo_v1';
+  const CACHE_KEY = 'bi_geo_v2';
   let   cache     = {};
   try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch(_) {}
 
   const entries = Object.entries(localidade).sort((a, b) => b[1] - a[1]).slice(0, 25);
-  const missing = entries.filter(([bairro]) => !cache[bairro.toLowerCase()]);
+  const missing = entries.filter(([b]) => !cache[b.toLowerCase()]);
 
   if (missing.length) {
-    if (msgEl)    msgEl.textContent = `Geocodificando ${missing.length} bairro(s)...`;
-    if (progWrap) progWrap.style.display = 'block';
+    if (progWrap) progWrap.style.display = 'flex';
+    for (let i = 0; i < missing.length; i++) {
+      const [bairro] = missing[i];
+      if (msgEl) msgEl.textContent = `Geocodificando ${i+1}/${missing.length}: ${bairro}`;
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(bairro + ', ' + CITY_CTX)}&format=json&limit=1&accept-language=pt-BR`;
+        const data = await fetch(url).then(r => r.json());
+        if (data && data[0]) cache[bairro.toLowerCase()] = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      } catch(_) {}
+      if (prog) prog.style.width = ((i+1) / missing.length * 100) + '%';
+      if (i < missing.length - 1) await new Promise(r => setTimeout(r, 1150));
+    }
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch(_) {}
   }
 
-  for (let i = 0; i < missing.length; i++) {
-    const [bairro] = missing[i];
-    const key = bairro.toLowerCase();
-    try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(bairro + ', ' + CITY_CTX)}&format=json&limit=1&accept-language=pt-BR`;
-      const data = await fetch(url).then(r => r.json());
-      if (data && data[0]) {
-        cache[key] = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-      }
-    } catch(_) {}
-    if (prog) prog.style.width = ((i + 1) / missing.length * 100) + '%';
-    if (i < missing.length - 1) await new Promise(r => setTimeout(r, 1150)); // respeita rate limit
-  }
+  // Resolve pontos
+  const totalAtend = entries.reduce((s, [,v]) => s + v, 0);
+  const maxVal     = entries[0]?.[1] || 1;
+  const resolved   = entries
+    .map(([bairro, count]) => ({ bairro, count, coords: cache[bairro.toLowerCase()] }))
+    .filter(p => p.coords);
 
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch(_) {}
-
-  // Monta pontos para o heatmap [lat, lng, intensidade]
-  const maxVal = entries[0]?.[1] || 1;
-  const points = [];
-  for (const [bairro, count] of entries) {
-    const coords = cache[bairro.toLowerCase()];
-    if (coords) points.push([coords.lat, coords.lng, count / maxVal]);
-  }
-
-  if (!points.length) {
-    if (msgEl) msgEl.textContent = 'Nenhuma coordenada encontrada. Verifique os nomes dos bairros.';
+  if (!resolved.length) {
+    if (msgEl) msgEl.textContent = 'Nenhuma coordenada encontrada. Verifique os nomes dos bairros e a cidade configurada nos Parâmetros.';
     return;
   }
 
-  // Exibe o mapa
+  // Mostra mapa
   if (loading) loading.style.display = 'none';
-  if (legend)  legend.style.display  = 'flex';
+  if (progWrap) progWrap.style.display = 'none';
   mapDiv.style.display = 'block';
+  await new Promise(r => setTimeout(r, 40));
 
   const map = L.map(mapDiv, { zoomControl: true, scrollWheelZoom: false });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
-    maxZoom: 18
+  map.invalidateSize();
+
+  // Tiles com estilo claro para os círculos se destacarem
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> © <a href="https://carto.com">CARTO</a>',
+    maxZoom: 19
   }).addTo(map);
 
-  L.heatLayer(points, {
-    radius: 40,
-    blur: 30,
-    maxZoom: 15,
-    max: 1,
-    gradient: { 0.1: '#fde8d8', 0.4: '#fdba74', 0.65: '#f97316', 0.85: '#dc2626', 1.0: '#7f1d1d' }
-  }).addTo(map);
+  // Função de cor por intensidade (amarelo → laranja → vermelho)
+  function bubbleColor(ratio) {
+    if (ratio > 0.75) return { fill: '#dc2626', stroke: '#7f1d1d' };
+    if (ratio > 0.45) return { fill: '#f97316', stroke: '#c2410c' };
+    if (ratio > 0.20) return { fill: '#fbbf24', stroke: '#d97706' };
+    return { fill: '#fde68a', stroke: '#ca8a04' };
+  }
 
-  const bounds = L.latLngBounds(points.map(p => [p[0], p[1]]));
-  map.fitBounds(bounds, { padding: [40, 40] });
+  const MIN_R = 8, MAX_R = 42;
+  const bounds = [];
+
+  resolved.forEach(({ bairro, count, coords }) => {
+    const ratio  = count / maxVal;
+    const pct    = (count / totalAtend * 100).toFixed(1);
+    const radius = MIN_R + Math.sqrt(ratio) * (MAX_R - MIN_R);
+    const { fill, stroke } = bubbleColor(ratio);
+
+    const circle = L.circleMarker([coords.lat, coords.lng], {
+      radius,
+      fillColor:   fill,
+      color:       stroke,
+      weight:      2,
+      fillOpacity: 0.78,
+      opacity:     1,
+    });
+
+    // Tooltip rico com nome + contagem + %
+    circle.bindTooltip(`
+      <div style="font-family:Inter,sans-serif;min-width:140px">
+        <div style="font-weight:700;font-size:.88rem;margin-bottom:4px">${bairro}</div>
+        <div style="color:#666;font-size:.78rem">${count.toLocaleString('pt-BR')} atendimentos</div>
+        <div style="color:#666;font-size:.78rem">${pct}% do total</div>
+      </div>`, {
+      direction: 'top',
+      offset: [0, -radius],
+      className: 'demo-map-tooltip',
+    }).addTo(map);
+
+    bounds.push([coords.lat, coords.lng]);
+  });
+
+  // Fit bounds
+  if (bounds.length) {
+    map.fitBounds(L.latLngBounds(bounds), { padding: [40, 40] });
+  }
+  setTimeout(() => map.invalidateSize(), 250);
 }
 
 /* ─── Tab: Especialidades ─── */
