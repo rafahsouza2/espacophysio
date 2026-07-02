@@ -2484,8 +2484,8 @@ async function initDemoHeatmap(localidade) {
   loadStyle('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
   await loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
 
-  const CITY_CTX  = '{{ bi_cfg.cidade_geocoding if bi_cfg and bi_cfg.cidade_geocoding else "Brasília, DF, Brasil" }}';
-  const CACHE_KEY = 'bi_geo_v2';
+  // Cache v3 — chave já inclui cidade ("Bairro, Cidade"), sem sufixo fixo
+  const CACHE_KEY = 'bi_geo_v3';
   let   cache     = {};
   try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch(_) {}
 
@@ -2495,12 +2495,13 @@ async function initDemoHeatmap(localidade) {
   if (missing.length) {
     if (progWrap) progWrap.style.display = 'flex';
     for (let i = 0; i < missing.length; i++) {
-      const [bairro] = missing[i];
-      if (msgEl) msgEl.textContent = `Geocodificando ${i+1}/${missing.length}: ${bairro}`;
+      const [loc] = missing[i];
+      if (msgEl) msgEl.textContent = `Geocodificando ${i+1}/${missing.length}: ${loc}`;
       try {
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(bairro + ', ' + CITY_CTX)}&format=json&limit=1&accept-language=pt-BR`;
+        // loc já vem como "Bairro, Cidade" do parser — busca direta sem sufixo
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc + ', Brasil')}&format=json&limit=1&accept-language=pt-BR&countrycodes=br`;
         const data = await fetch(url).then(r => r.json());
-        if (data && data[0]) cache[bairro.toLowerCase()] = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+        if (data && data[0]) cache[loc.toLowerCase()] = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
       } catch(_) {}
       if (prog) prog.style.width = ((i+1) / missing.length * 100) + '%';
       if (i < missing.length - 1) await new Promise(r => setTimeout(r, 1150));

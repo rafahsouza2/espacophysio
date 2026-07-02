@@ -507,14 +507,27 @@ def parse_xls(content: bytes) -> dict:
         pct_acima_60 = round(total_acima_60 / tot_pac_demo * 100, 1)
         pct_acima_80 = round(total_acima_80 / tot_pac_demo * 100, 1)
 
-        # Distribuição por localidade (bairro > cidade)
+        # Distribuição por localidade — chave = "Bairro, Cidade" para geocodificação precisa
         localidade = {}
-        if "_bairro" in df_real.columns:
-            bairros = df_real["_bairro"].replace("", None).dropna().value_counts().head(20)
-            if not bairros.empty:
-                localidade = {str(k): int(v) for k, v in bairros.items()}
-        if not localidade and "_cidade" in df_real.columns:
-            cidades = df_real["_cidade"].replace("", None).dropna().value_counts().head(20)
+        bairro_s = df_real["_bairro"].replace("", None) if "_bairro" in df_real.columns else None
+        cidade_s = df_real["_cidade"].replace("", None) if "_cidade" in df_real.columns else None
+
+        if bairro_s is not None and bairro_s.notna().any():
+            _tmp = df_real.copy()
+            if cidade_s is not None:
+                # Combina "Bairro, Cidade" quando ambas colunas têm valor
+                _both = bairro_s.notna() & cidade_s.notna()
+                _tmp["_loc_key"] = bairro_s.fillna("")
+                _tmp.loc[_both, "_loc_key"] = (
+                    bairro_s[_both].astype(str).str.strip() + ", " +
+                    cidade_s[_both].astype(str).str.strip()
+                )
+            else:
+                _tmp["_loc_key"] = bairro_s.fillna("")
+            locs = _tmp.loc[bairro_s.notna(), "_loc_key"].value_counts().head(20)
+            localidade = {str(k): int(v) for k, v in locs.items() if str(k).strip()}
+        elif cidade_s is not None and cidade_s.notna().any():
+            cidades = cidade_s.dropna().value_counts().head(20)
             localidade = {str(k): int(v) for k, v in cidades.items()}
 
         # Convenios por paciente único
