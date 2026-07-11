@@ -9,9 +9,51 @@ import io
 import json
 import re
 from datetime import datetime
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pandas as pd
+
+
+class _TableExtractor(HTMLParser):
+    """Extracts the first HTML table without lxml (bypasses lxml truncation on large files)."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.rows: list[list[str]] = []
+        self._cur_row: list[str] | None = None
+        self._cur_cell: list[str] | None = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr":
+            self._cur_row = []
+        elif tag in ("td", "th") and self._cur_row is not None:
+            self._cur_cell = []
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th") and self._cur_cell is not None:
+            self._cur_row.append("".join(self._cur_cell).strip())
+            self._cur_cell = None
+        elif tag == "tr" and self._cur_row is not None:
+            if self._cur_row:
+                self.rows.append(self._cur_row)
+            self._cur_row = None
+
+    def handle_data(self, data):
+        if self._cur_cell is not None:
+            self._cur_cell.append(data)
+
+
+def _parse_html_table(content: bytes, encoding: str = "cp1252") -> pd.DataFrame:
+    """Parse an HTML table using Python's built-in html.parser (no size limits).
+    Raises UnicodeDecodeError if the encoding is wrong so the caller can try the next one."""
+    text = content.decode(encoding, errors="strict")
+    extractor = _TableExtractor()
+    extractor.feed(text)
+    if not extractor.rows:
+        raise ValueError("Nenhuma tabela encontrada no HTML.")
+    header = extractor.rows[0]
+    data = extractor.rows[1:]
+    return pd.DataFrame(data, columns=header)
 
 # ── Meta padrão (sobrescrita pelo config em parse_xls) ───────────────────────
 META        = 1_000_000
@@ -186,11 +228,10 @@ def parse_xls(content: bytes) -> dict:
             raise ValueError(f"Erro ao ler XLSX: {e}")
     else:
         df = None
-        for enc in ("cp1252", "latin-1", "utf-8"):
+        # Try UTF-8 first (handles BOM), then legacy Windows encodings
+        for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
             try:
-                buf.seek(0)
-                tables = pd.read_html(buf, encoding=enc, header=0)
-                df = max(tables, key=lambda t: len(t))
+                df = _parse_html_table(content, encoding=enc)
                 break
             except Exception:
                 continue
@@ -517,17 +558,17 @@ def parse_xls(content: bytes) -> dict:
             if cidade_s is not None:
                 # Combina "Bairro, Cidade" quando ambas colunas têm valor
                 _both = bairro_s.notna() & cidade_s.notna()
-                _tmp["_loc_key"] = bairro_s.fillna("")
+                _tmp["_loc_key"] = bairro_s.fillna("").str.strip().str.title()
                 _tmp.loc[_both, "_loc_key"] = (
-                    bairro_s[_both].astype(str).str.strip() + ", " +
-                    cidade_s[_both].astype(str).str.strip()
+                    bairro_s[_both].astype(str).str.strip().str.title() + ", " +
+                    cidade_s[_both].astype(str).str.strip().str.title()
                 )
             else:
-                _tmp["_loc_key"] = bairro_s.fillna("")
+                _tmp["_loc_key"] = bairro_s.fillna("").str.strip().str.title()
             locs = _tmp.loc[bairro_s.notna(), "_loc_key"].value_counts().head(20)
             localidade = {str(k): int(v) for k, v in locs.items() if str(k).strip()}
         elif cidade_s is not None and cidade_s.notna().any():
-            cidades = cidade_s.dropna().value_counts().head(20)
+            cidades = cidade_s.dropna().str.strip().str.title().value_counts().head(20)
             localidade = {str(k): int(v) for k, v in cidades.items()}
 
         # Convenios por paciente único
