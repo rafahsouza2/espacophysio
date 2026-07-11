@@ -288,7 +288,13 @@ def parse_xls(content: bytes) -> dict:
     else:
         df["_prof"] = "Desconhecido"
 
-    df["_val"] = pd.to_numeric(df[col_valor], errors="coerce").fillna(0.0) if col_valor else 0.0
+    if col_valor:
+        # Converte formato brasileiro "1.234,56" → 1234.56
+        _vs = df[col_valor].astype(str).str.strip().str.replace(r"\s", "", regex=True)
+        _vs = _vs.str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
+        df["_val"] = pd.to_numeric(_vs, errors="coerce").fillna(0.0)
+    else:
+        df["_val"] = 0.0
 
     if col_dt_nasc:
         df["_nasc"]  = pd.to_datetime(df[col_dt_nasc], dayfirst=True, errors="coerce")
