@@ -868,18 +868,44 @@ def _merge_bi_reports(reports: list[dict]) -> dict:
     lbl_fim = reports[-1].get("periodo", {}).get("label", "")
     p_label = lbl_ini if lbl_ini == lbl_fim else f"{lbl_ini} – {lbl_fim}"
 
-    # ── Por unidade: mescla recursivamente ────────────────────────────────
+    # ── Por unidade: mescla sem recursão para evitar KeyError em sub-dicts ──
     por_unidade: dict[str, dict] = {}
     all_units: set[str] = set()
     for r in reports:
         all_units.update((r.get("por_unidade") or {}).keys())
     for unit in all_units:
         unit_reps = [r["por_unidade"][unit] for r in reports if unit in (r.get("por_unidade") or {})]
-        if unit_reps:
-            por_unidade[unit] = _merge_bi_reports(unit_reps)
+        if not unit_reps:
+            continue
+        if len(unit_reps) == 1:
+            por_unidade[unit] = unit_reps[0]
+            continue
+        # Merge simples dos KPIs de unidade (mesmos campos que o global)
+        uk: dict = {}
+        for key in ("total_atendimentos", "total_agendamentos", "total_faltas",
+                    "total_cancelados", "total_producao", "total_faturamento",
+                    "total_faturado_cnt", "total_pacientes"):
+            uk[key] = sum(ur.get("kpis", {}).get(key, 0) for ur in unit_reps)
+        n_a = uk.get("total_atendimentos", 0)
+        n_g = uk.get("total_agendamentos", 0)
+        n_p = uk.get("total_producao", 0)
+        uk["taxa_atendimento"] = round(n_a / n_g * 100, 2) if n_g else 0.0
+        uk["ticket_medio"]     = round(n_p / n_a, 2) if n_a else 0.0
+        uk["alcance_meta"]     = round(n_p / meta * 100, 1) if meta else 0.0
+        # Evolução diária concatenada
+        u_evo: dict = {"labels": [], "atend": [], "faltas": [], "prod": [], "meta_pct": []}
+        for ur in unit_reps:
+            e = ur.get("evolucao_diaria", {})
+            for fld in ("labels", "atend", "faltas", "prod", "meta_pct"):
+                u_evo[fld].extend(e.get(fld, []))
+        por_unidade[unit] = {**unit_reps[0], "kpis": uk, "evolucao_diaria": u_evo}
+
+    # period_key do range: usa .get() para funcionar tanto no nível raiz quanto em sub-dicts
+    pk_ini = reports[0].get("period_key", "")
+    pk_fim = reports[-1].get("period_key", pk_ini)
 
     return {
-        "period_key":          f"{reports[0]['period_key']}:{reports[-1]['period_key']}",
+        "period_key":          f"{pk_ini}:{pk_fim}" if pk_ini != pk_fim else pk_ini,
         "periodo":             {"label": p_label, "inicio": p_ini, "fim": p_fim},
         "total_registros":     sum(r.get("total_registros", 0) for r in reports),
         "meta":                meta,
