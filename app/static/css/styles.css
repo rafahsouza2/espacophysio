@@ -948,7 +948,9 @@ a#menu-bi-link { display: flex; align-items: center; }
 .bi-period-info { display: flex; flex-direction: column; gap: 2px; }
 .eyebrow { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .bi-period-label { font-size: 1.25rem; font-weight: 800; color: var(--text); }
-.bi-period-actions { display: flex; align-items: center; gap: 10px; }
+.bi-period-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.period-range-wrap { display: flex; align-items: center; gap: 6px; }
+.period-range-sep  { font-size: 0.78rem; font-weight: 700; color: var(--muted); white-space: nowrap; }
 .btn-sm-outline {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 8px 16px; border-radius: 12px; border: 1.5px solid var(--primary-strong);

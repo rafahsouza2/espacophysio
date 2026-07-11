@@ -93,9 +93,11 @@ def _backfill_bi(d: dict) -> dict:
 
 @router.get("/bi", response_class=HTMLResponse)
 async def bi_dashboard(
-    request: Request,
-    period:  str = None,
-    unit:    str = None,
+    request:     Request,
+    period:      str = None,   # compat: mês único antigo
+    period_from: str = None,   # início do intervalo (AAAA-MM)
+    period_to:   str = None,   # fim do intervalo   (AAAA-MM)
+    unit:        str = None,
     user=Depends(require_auth),
 ):
     if isinstance(user, RedirectResponse):
@@ -104,7 +106,12 @@ async def bi_dashboard(
     if redir:
         return redir
 
-    bi_data_raw = _backfill_bi(load_saved(period_key=period))
+    # Normaliza: compat com ?period= antigo
+    if period and not period_from and not period_to:
+        period_from = period_to = period
+
+    from app.modules.bi.parser import load_saved_range
+    bi_data_raw = _backfill_bi(load_saved_range(period_from, period_to))
     reports     = list_reports()
     bi_cfg      = get_bi_config()
 
@@ -149,23 +156,30 @@ async def bi_dashboard(
                 if prods:
                     evo["meta_pct"] = [round(p / meta_dia * 100, 1) if meta_dia else 0.0 for p in prods]
 
+    # Deriva current_period para compat com listagem/exports que ainda usam period=
+    current_period = period_from if period_from == period_to else None
+
     return templates.TemplateResponse("bi.html", {
-        "request":        request,
-        "user":           user,
-        "active_menu":    "bi",
-        "bi_data":        bi_data,
-        "reports":        reports,
-        "current_period": period,
-        "current_unit":   current_unit,
-        "lista_unidades": lista_unidades,
-        "bi_cfg":         bi_cfg,
+        "request":         request,
+        "user":            user,
+        "active_menu":     "bi",
+        "bi_data":         bi_data,
+        "reports":         reports,
+        "current_period":  current_period,
+        "period_from":     period_from or "",
+        "period_to":       period_to   or "",
+        "current_unit":    current_unit,
+        "lista_unidades":  lista_unidades,
+        "bi_cfg":          bi_cfg,
     })
 
 
 @router.get("/bi/listagem")
 async def bi_listagem(
-    request:  Request,
-    period:       str  = None,
+    request:      Request,
+    period:       str  = None,   # compat: mês único
+    period_from:  str  = None,   # início do intervalo
+    period_to:    str  = None,   # fim do intervalo
     convenio:     str  = None,
     unidade:      str  = None,
     profissional: str  = None,
@@ -180,12 +194,17 @@ async def bi_listagem(
     if redir:
         return redir
 
+    # Normaliza period compat
+    if period and not period_from:
+        period_from = period_to = period
+
     try:
         from app.database import get_supabase_admin
         sb  = get_supabase_admin()
 
         def _apply_filters(q):
-            if period:       q = q.eq("period_key", period)
+            if period_from: q = q.gte("period_key", period_from)
+            if period_to:   q = q.lte("period_key", period_to)
             if convenio:     q = q.ilike("convenio", f"%{convenio}%")
             if unidade:      q = q.ilike("unidade", f"%{unidade}%")
             if profissional: q = q.ilike("profissional", f"%{profissional}%")
@@ -224,15 +243,19 @@ async def bi_listagem(
 
 
 @router.get("/bi/listagem/convenios")
-async def bi_listagem_convenios(request: Request, period: str = None, user=Depends(require_auth)):
+async def bi_listagem_convenios(request: Request, period: str = None,
+                                 period_from: str = None, period_to: str = None,
+                                 user=Depends(require_auth)):
     if isinstance(user, RedirectResponse):
         return user
+    if period and not period_from:
+        period_from = period_to = period
     try:
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
         q  = sb.table("bi_atendimentos").select("convenio")
-        if period:
-            q = q.eq("period_key", period)
+        if period_from: q = q.gte("period_key", period_from)
+        if period_to:   q = q.lte("period_key", period_to)
         res = q.limit(5000).execute()
         items = sorted({r["convenio"] for r in (res.data or []) if r.get("convenio")})
         return JSONResponse({"ok": True, "items": items})
@@ -241,15 +264,19 @@ async def bi_listagem_convenios(request: Request, period: str = None, user=Depen
 
 
 @router.get("/bi/listagem/profissionais")
-async def bi_listagem_profissionais(request: Request, period: str = None, user=Depends(require_auth)):
+async def bi_listagem_profissionais(request: Request, period: str = None,
+                                     period_from: str = None, period_to: str = None,
+                                     user=Depends(require_auth)):
     if isinstance(user, RedirectResponse):
         return user
+    if period and not period_from:
+        period_from = period_to = period
     try:
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
         q  = sb.table("bi_atendimentos").select("profissional")
-        if period:
-            q = q.eq("period_key", period)
+        if period_from: q = q.gte("period_key", period_from)
+        if period_to:   q = q.lte("period_key", period_to)
         res = q.limit(5000).execute()
         items = sorted({r["profissional"] for r in (res.data or []) if r.get("profissional")})
         return JSONResponse({"ok": True, "items": items})
@@ -259,8 +286,10 @@ async def bi_listagem_profissionais(request: Request, period: str = None, user=D
 
 @router.get("/bi/listagem/export")
 async def bi_listagem_export(
-    request:  Request,
-    period:       str = None,
+    request:      Request,
+    period:       str = None,   # compat
+    period_from:  str = None,
+    period_to:    str = None,
     convenio:     str = None,
     unidade:      str = None,
     profissional: str = None,
@@ -283,10 +312,13 @@ async def bi_listagem_export(
     try:
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
+        if period and not period_from:
+            period_from = period_to = period
         qb = sb.table("bi_atendimentos").select(
             "data_atend,paciente,profissional,especialidade,convenio,unidade,valor,faturado,protocolo_lote,status"
         )
-        if period:       qb = qb.eq("period_key", period)
+        if period_from:  qb = qb.gte("period_key", period_from)
+        if period_to:    qb = qb.lte("period_key", period_to)
         if convenio:     qb = qb.ilike("convenio", f"%{convenio}%")
         if unidade:      qb = qb.ilike("unidade",  f"%{unidade}%")
         if profissional: qb = qb.ilike("profissional", f"%{profissional}%")

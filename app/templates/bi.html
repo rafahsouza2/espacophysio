@@ -52,13 +52,25 @@
   </div>
   <div class="bi-period-actions">
     {% if reports %}
-    <select class="filter-select" id="period-select" onchange="applyFilters()">
-      {% for r in reports %}
-      <option value="{{ r.period_key }}" {% if current_period == r.period_key or (not current_period and loop.first) %}selected{% endif %}>
-        {{ r.periodo_label }}
-      </option>
-      {% endfor %}
-    </select>
+    <div class="period-range-wrap">
+      <select class="filter-select" id="period-from" onchange="applyFilters()">
+        {% for r in reports %}
+        <option value="{{ r.period_key }}"
+          {% if period_from == r.period_key or (not period_from and loop.first) %}selected{% endif %}>
+          {{ r.periodo_label }}
+        </option>
+        {% endfor %}
+      </select>
+      <span class="period-range-sep">até</span>
+      <select class="filter-select" id="period-to" onchange="applyFilters()">
+        {% for r in reports %}
+        <option value="{{ r.period_key }}"
+          {% if period_to == r.period_key or (not period_to and loop.first) %}selected{% endif %}>
+          {{ r.periodo_label }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
     {% endif %}
     {% if lista_unidades %}
     <select class="filter-select unit-select" id="unit-select" onchange="applyFilters()">
@@ -821,7 +833,7 @@ const PERIODO   = BI.periodo?.label || '';
             <td class="right {% if u.taxa_final >= 70 %}ok{% elif u.taxa_final >= 50 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(u.taxa_final)|replace(".",",") }}%</td>
             <td class="right mid">{{ "%.1f"|format(u.pct_prod)|replace(".",",") }}%</td>
             <td class="center">
-              <a class="report-btn" href="/bi?period={{ current_period or '' }}&unit={{ u.nome | urlencode }}">Ver</a>
+              <a class="report-btn" href="/bi?period_from={{ period_from or '' }}&period_to={{ period_to or '' }}&unit={{ u.nome | urlencode }}">Ver</a>
             </td>
           </tr>
           {% endfor %}
@@ -845,7 +857,7 @@ const PERIODO   = BI.periodo?.label || '';
   {% if current_unit %}
   <div class="unit-filter-notice glass">
     Filtrando: <strong>{{ current_unit }}</strong>
-    <a href="/bi{% if current_period %}?period={{ current_period }}{% endif %}" class="unit-clear-btn">✕ Remover filtro</a>
+    <a href="/bi{% if period_from or period_to %}?period_from={{ period_from }}&period_to={{ period_to }}{% endif %}" class="unit-clear-btn">✕ Remover filtro</a>
   </div>
   {% endif %}
 
@@ -2066,7 +2078,12 @@ function initAtendentes() {
 }
 
 /* ─── Tab: Listagem ─── */
-const lstState = { page: 1, pages: 1, period: '{{ current_period or "" }}' };
+const lstState = {
+  page: 1, pages: 1,
+  period:      '{{ current_period or "" }}',
+  period_from: '{{ period_from or "" }}',
+  period_to:   '{{ period_to   or "" }}',
+};
 
 function fmtBRVal(v) {
   return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -2084,7 +2101,10 @@ function lstFiltros() {
 function lstUrlParams(page, extra = {}) {
   const f = lstFiltros();
   const p = new URLSearchParams();
-  if (lstState.period) p.set('period', lstState.period);
+  // Suporte a range de período ou mês único
+  if (lstState.period_from) p.set('period_from', lstState.period_from);
+  if (lstState.period_to)   p.set('period_to',   lstState.period_to);
+  else if (lstState.period) p.set('period', lstState.period);
   if (f.convenio)     p.set('convenio',     f.convenio);
   if (f.unidade)      p.set('unidade',      f.unidade);
   if (f.profissional) p.set('profissional', f.profissional);
@@ -2798,13 +2818,15 @@ async function doDeleteReport(periodKey) {
 
 /* ─── Filtro de período + unidade (preserva aba ativa) ─── */
 function applyFilters() {
-  const period = document.getElementById('period-select')?.value || '';
-  const unit   = document.getElementById('unit-select')?.value   || '';
-  const tab    = document.querySelector('#bi-sidebar-tabs .bi-sidebar-tab.active')?.dataset.target || '';
+  const pFrom = document.getElementById('period-from')?.value || '';
+  const pTo   = document.getElementById('period-to')?.value   || '';
+  const unit  = document.getElementById('unit-select')?.value || '';
+  const tab   = document.querySelector('#bi-sidebar-tabs .bi-sidebar-tab.active')?.dataset.target || '';
   let url = '/bi';
   const params = [];
-  if (period) params.push('period=' + encodeURIComponent(period));
-  if (unit)   params.push('unit='   + encodeURIComponent(unit));
+  if (pFrom) params.push('period_from=' + encodeURIComponent(pFrom));
+  if (pTo)   params.push('period_to='   + encodeURIComponent(pTo));
+  if (unit)  params.push('unit='        + encodeURIComponent(unit));
   if (tab && tab !== 'tab-dashboard') params.push('tab=' + encodeURIComponent(tab));
   if (params.length) url += '?' + params.join('&');
   location.href = url;
