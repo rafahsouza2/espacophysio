@@ -1930,30 +1930,60 @@ function initDashboard() {
     }
   });
 
+  const convTotal = convs.reduce((s, c) => s + (c.producao || 0), 0);
   mkChart('chart-dash-conv', {
     type: 'doughnut',
     data: {
       labels: convs.map(c => c.nome.substring(0,20)),
-      datasets: [{ data: convs.map(c => c.producao), backgroundColor: PALETA, borderWidth: 0, hoverOffset: 6 }]
+      datasets: [{ data: convs.map(c => c.producao), backgroundColor: PALETA, borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }]
     },
     options: { responsive: true, maintainAspectRatio: false, cutout: '58%',
-      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } },
-        tooltip: { callbacks: { label: ctx => ' ' + fmtBR(ctx.raw) } }
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => {
+          const pct = convTotal > 0 ? (ctx.raw / convTotal * 100).toFixed(1) : '0.0';
+          return ` ${ctx.label}: ${fmtBR(ctx.raw)} (${pct}%)`;
+        }}},
+        datalabels: {
+          color: '#fff',
+          font: { size: 11, weight: 'bold' },
+          formatter: (val) => {
+            if (!convTotal || val / convTotal < 0.05) return '';
+            return (val / convTotal * 100).toFixed(1) + '%';
+          }
+        }
       }
-    }
+    },
+    plugins: [ChartDataLabels]
   });
 
+  const tipoVals = tipos.map(t => t.producao || t.qtde || 0);
+  const tipoTotal = tipoVals.reduce((s, v) => s + v, 0);
   mkChart('chart-dash-tipo', {
     type: 'doughnut',
     data: {
       labels: tipos.map(t => t.nome.substring(0,22)),
-      datasets: [{ data: tipos.map(t => t.producao || t.qtde), backgroundColor: PALETA, borderWidth: 0, hoverOffset: 6 }]
+      datasets: [{ data: tipoVals, backgroundColor: PALETA, borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }]
     },
     options: { responsive: true, maintainAspectRatio: false, cutout: '58%',
-      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } },
-        tooltip: { callbacks: { label: ctx => (tipos[ctx.dataIndex]?.producao > 0 ? ' ' + fmtBR(ctx.raw) : ' ' + ctx.raw) } }
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => {
+          const pct = tipoTotal > 0 ? (ctx.raw / tipoTotal * 100).toFixed(1) : '0.0';
+          const valStr = tipos[ctx.dataIndex]?.producao > 0 ? fmtBR(ctx.raw) : ctx.raw;
+          return ` ${ctx.label}: ${valStr} (${pct}%)`;
+        }}},
+        datalabels: {
+          color: '#fff',
+          font: { size: 11, weight: 'bold' },
+          formatter: (val) => {
+            if (!tipoTotal || val / tipoTotal < 0.05) return '';
+            return (val / tipoTotal * 100).toFixed(1) + '%';
+          }
+        }
       }
-    }
+    },
+    plugins: [ChartDataLabels]
   });
 }
 
@@ -2033,30 +2063,54 @@ function initConvenios() {
   const convs = (BI.convenios || []).slice(0, 8);
   const tipos = (BI.tipos     || []).slice(0, 8);
 
+  const convDonutVals = convs.map(c => c.producao || c.final || 0);
+  const convDonutTotal = convDonutVals.reduce((s, v) => s + v, 0);
   mkChart('chart-conv-donut', {
     type: 'doughnut',
     data: {
       labels: convs.map(c => c.nome.substring(0,20)),
-      datasets: [{ data: convs.map(c => c.producao || c.final), backgroundColor: PALETA, borderWidth: 0, hoverOffset: 6 }]
+      datasets: [{ data: convDonutVals, backgroundColor: PALETA, borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }]
     },
     options: { responsive: true, maintainAspectRatio: false, cutout: '55%',
-      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } },
-        tooltip: { callbacks: { label: ctx => (convs[ctx.dataIndex]?.producao > 0 ? ' ' + fmtBR(ctx.raw) : ' ' + ctx.raw) } }
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => {
+          const pct = convDonutTotal > 0 ? (ctx.raw / convDonutTotal * 100).toFixed(1) : '0.0';
+          const valStr = convs[ctx.dataIndex]?.producao > 0 ? fmtBR(ctx.raw) : ctx.raw;
+          return ` ${ctx.label}: ${valStr} (${pct}%)`;
+        }}},
+        datalabels: {
+          color: '#fff', font: { size: 11, weight: 'bold' },
+          formatter: (val) => (!convDonutTotal || val / convDonutTotal < 0.05) ? '' : (val / convDonutTotal * 100).toFixed(1) + '%'
+        }
       }
-    }
+    },
+    plugins: [ChartDataLabels]
   });
 
+  const tipoDonutVals = tipos.map(t => t.producao || t.qtde || 0);
+  const tipoDonutTotal = tipoDonutVals.reduce((s, v) => s + v, 0);
   mkChart('chart-tipo-donut', {
     type: 'doughnut',
     data: {
       labels: tipos.map(t => t.nome.substring(0,22)),
-      datasets: [{ data: tipos.map(t => t.producao || t.qtde), backgroundColor: PALETA, borderWidth: 0, hoverOffset: 6 }]
+      datasets: [{ data: tipoDonutVals, backgroundColor: PALETA, borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }]
     },
     options: { responsive: true, maintainAspectRatio: false, cutout: '55%',
-      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } },
-        tooltip: { callbacks: { label: ctx => (tipos[ctx.dataIndex]?.producao > 0 ? ' ' + fmtBR(ctx.raw) : ' ' + ctx.raw) } }
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => {
+          const pct = tipoDonutTotal > 0 ? (ctx.raw / tipoDonutTotal * 100).toFixed(1) : '0.0';
+          const valStr = tipos[ctx.dataIndex]?.producao > 0 ? fmtBR(ctx.raw) : ctx.raw;
+          return ` ${ctx.label}: ${valStr} (${pct}%)`;
+        }}},
+        datalabels: {
+          color: '#fff', font: { size: 11, weight: 'bold' },
+          formatter: (val) => (!tipoDonutTotal || val / tipoDonutTotal < 0.05) ? '' : (val / tipoDonutTotal * 100).toFixed(1) + '%'
+        }
       }
-    }
+    },
+    plugins: [ChartDataLabels]
   });
 }
 
