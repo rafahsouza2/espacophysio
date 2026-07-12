@@ -455,7 +455,6 @@ def parse_xls(content: bytes) -> dict:
                 "reagendados":  int(prof_reagd_cnt.get(nome, 0)),
             })
         profissionais.sort(key=lambda p: p["prod"] if p["prod"] > 0 else p["final"], reverse=True)
-        profissionais = profissionais[:15]
 
         # Especialidades
         esp_real  = df_real.groupby("_esp").size().sort_values(ascending=False)
@@ -719,9 +718,78 @@ def parse_xls(content: bytes) -> dict:
 
 
 # ── Carregar / limpar ─────────────────────────────────────────────────────────
+
+def _calc_profissionais_from_atendimentos(period_from: str, period_to: str) -> list[dict]:
+    """Recalcula lista completa de profissionais direto da bi_atendimentos (sem limite de 15)."""
+    try:
+        from app.database import get_supabase_admin
+        sb = get_supabase_admin()
+        # Busca em lotes (Supabase limita 1000 linhas por request)
+        all_rows: list[dict] = []
+        offset = 0
+        while True:
+            res = (
+                sb.table("bi_atendimentos")
+                  .select("profissional,status,valor,faturado")
+                  .gte("period_key", period_from)
+                  .lte("period_key", period_to)
+                  .range(offset, offset + 999)
+                  .execute()
+            )
+            batch = res.data or []
+            all_rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            offset += 1000
+
+        if not all_rows:
+            return []
+
+        # Agrega por profissional
+        prof_map: dict[str, dict] = {}
+        for row in all_rows:
+            nome = (row.get("profissional") or "").strip()
+            if not nome:
+                continue
+            status = row.get("status") or ""
+            valor  = float(row.get("valor") or 0.0)
+            fat    = bool(row.get("faturado") or False)
+            if nome not in prof_map:
+                prof_map[nome] = {"nome": nome, "total": 0, "final": 0,
+                                  "prod": 0.0, "faturado": 0.0,
+                                  "desmarcados": 0, "faltas_ag": 0, "reagendados": 0}
+            prof_map[nome]["total"] += 1
+            if status == "realizado":
+                prof_map[nome]["final"] += 1
+                prof_map[nome]["prod"]  = round(prof_map[nome]["prod"] + valor, 2)
+                if fat:
+                    prof_map[nome]["faturado"] = round(prof_map[nome]["faturado"] + valor, 2)
+
+        profs = []
+        for p in prof_map.values():
+            total = p["total"]; final = p["final"]
+            prod  = p["prod"];  fat   = p["faturado"]
+            profs.append({
+                **p,
+                "qtde":        total,
+                "marcado":     total - final,
+                "taxa_final":  round(final / total * 100, 1) if total else 0.0,
+                "a_faturar":   max(0.0, round(prod - fat, 2)),
+                "pct_faturado": round(fat / prod * 100, 1) if prod else 0.0,
+            })
+        profs.sort(key=lambda x: -(x["prod"] if x["prod"] > 0 else x["final"]))
+        return profs
+    except Exception as e:
+        print("BI CALC PROFS ERROR:", repr(e))
+        return []
+
+
 def load_saved(period_key: str | None = None) -> dict | None:
     data = _load_supabase(period_key)
     if data:
+        profs = _calc_profissionais_from_atendimentos(period_key, period_key) if period_key else []
+        if len(profs) > len(data.get("profissionais", [])):
+            data["profissionais"] = profs
         return data
     # Fallback: disco local
     if DATA_PATH.exists():
@@ -824,13 +892,19 @@ def _merge_bi_reports(reports: list[dict]) -> dict:
         for p in r.get("profissionais", []):
             nome = p.get("nome", "")
             if nome not in prof_map:
-                prof_map[nome] = {**p, "marcado": 0, "final": 0, "faltas": 0, "desmarcados": 0, "producao": 0}
-            for f in ("marcado", "final", "faltas", "desmarcados", "producao"):
+                prof_map[nome] = {**p, "total": 0, "final": 0, "prod": 0.0,
+                                  "faturado": 0.0, "faltas_ag": 0, "desmarcados": 0, "reagendados": 0}
+            for f in ("total", "final", "faltas_ag", "desmarcados", "reagendados"):
                 prof_map[nome][f] = prof_map[nome].get(f, 0) + p.get(f, 0)
+            prof_map[nome]["prod"]     = round(prof_map[nome].get("prod", 0) + p.get("prod", 0), 2)
+            prof_map[nome]["faturado"] = round(prof_map[nome].get("faturado", 0) + p.get("faturado", 0), 2)
     for p in prof_map.values():
-        p["conversao"]  = round(p["final"]  / p["marcado"] * 100, 1) if p["marcado"] else 0
-        p["pct_faltas"] = round(p["faltas"] / p["marcado"] * 100, 1) if p["marcado"] else 0
-    profissionais = sorted(prof_map.values(), key=lambda x: -x["producao"])[:15]
+        p["qtde"]        = p["total"]
+        p["marcado"]     = p["total"] - p["final"]
+        p["taxa_final"]  = round(p["final"] / p["total"] * 100, 1) if p["total"] else 0.0
+        p["a_faturar"]   = max(0.0, round(p["prod"] - p["faturado"], 2))
+        p["pct_faturado"]= round(p["faturado"] / p["prod"] * 100, 1) if p["prod"] else 0.0
+    profissionais = sorted(prof_map.values(), key=lambda x: -(x["prod"] if x["prod"] > 0 else x["final"]))
 
     # ── Especialidades ────────────────────────────────────────────────────
     esp_map: dict[str, dict] = {}
@@ -949,7 +1023,12 @@ def load_saved_range(period_from: str | None, period_to: str | None) -> dict | N
         reps = [row["data"] for row in (res.data or []) if row.get("data")]
         if not reps:
             return None
-        return _merge_bi_reports(reps)
+        merged = _merge_bi_reports(reps)
+        # Enriquece com lista completa de profissionais da bi_atendimentos
+        profs = _calc_profissionais_from_atendimentos(period_from or "", period_to or "")
+        if len(profs) > len(merged.get("profissionais", [])):
+            merged["profissionais"] = profs
+        return merged
     except Exception as e:
         print("BI LOAD RANGE ERROR:", repr(e))
         # Fallback: tenta carregar o mês inicial

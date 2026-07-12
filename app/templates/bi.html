@@ -418,12 +418,14 @@ const PERIODO   = BI.periodo?.label || '';
 <section id="tab-profissionais" class="bi-panel">
 
   <article class="dashboard-card glass">
-    <h3>Ranking de Produção — Top 12</h3>
+    <h3>Ranking de Produção — Top 15</h3>
     <div class="chart-wrap-lg"><canvas id="chart-prof-bar"></canvas></div>
   </article>
 
   <article class="dashboard-card glass">
-    <h3>Detalhamento por Profissional</h3>
+    <h3>Detalhamento por Profissional
+      {% if bi_data.profissionais %}<span style="font-size:.78rem;font-weight:400;color:var(--muted);margin-left:8px">{{ bi_data.profissionais|length }} profissionais</span>{% endif %}
+    </h3>
     <div style="overflow-x:auto">
       <table class="bi-table bi-table-green">
         <thead>
@@ -1999,24 +2001,28 @@ function initDiario() {
 }
 
 function initProfissionais() {
-  const profs = (BI.profissionais || []).slice(0, 12);
+  const allProfs = (BI.profissionais || []);
+  const profs    = allProfs.slice(0, 15);
+  const hasProd  = profs.some(p => p.prod > 0);
   mkChart('chart-prof-bar', {
     type: 'bar',
     data: {
-      labels: profs.map(p => p.nome.substring(0,24)),
+      labels: profs.map(p => p.nome.substring(0, 26)),
       datasets: [{
-        label: 'Produção',
-        data: profs.map(p => p.prod || p.final),
+        label: hasProd ? 'Produção' : 'Finalizados',
+        data:  profs.map(p => hasProd ? (p.prod || 0) : p.final),
         backgroundColor: C_GREEN, borderRadius: 4,
       }]
     },
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: ctx => (profs[ctx.dataIndex]?.prod > 0 ? ' ' + fmtBR(ctx.raw) : ' ' + ctx.raw + ' finalizados') } }
+        tooltip: { callbacks: {
+          label: ctx => hasProd ? ' ' + fmtBR(ctx.raw) : ' ' + ctx.raw + ' finalizados'
+        }}
       },
       scales: {
-        x: { beginAtZero: true, ticks: { callback: v => profs[0]?.prod > 0 ? fmtK(v) : v }, grid: { color: 'rgba(21,21,21,.05)' } },
+        x: { beginAtZero: true, ticks: { callback: v => hasProd ? fmtK(v) : v }, grid: { color: 'rgba(21,21,21,.05)' } },
         y: { grid: { display: false } }
       }
     }
