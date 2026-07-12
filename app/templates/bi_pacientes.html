@@ -3,30 +3,31 @@
 
 {% block sidebar_extra %}
 <div class="bi-sidebar-tabs" id="pac-sidebar-tabs">
-  <a class="bi-sidebar-tab" href="/bi">← B.I — Indicadores</a>
+  <a class="bi-sidebar-tab" href="/bi{% if period_from %}?period_from={{ period_from }}{% if period_to %}&period_to={{ period_to }}{% endif %}{% endif %}">← B.I — Indicadores</a>
   <div class="bi-sidebar-sep"></div>
   <span class="bi-sidebar-tab active">Analítico de Pacientes</span>
 </div>
 {% endblock %}
 
 {% block content %}
+
+{# Cabeçalho com filtros de período e unidade #}
 <div class="bi-header">
   <div>
     <span class="bi-label">PACIENTES — ANALÍTICO</span>
-    <h2 class="bi-title" id="pac-title">
+    <h2 class="bi-title">
       {% if period_from and period_to and period_from != period_to %}
         {{ period_from }} – {{ period_to }}
       {% elif period_from %}
         {{ period_from }}
       {% else %}
-        Todos os períodos
+        Selecione um período
       {% endif %}
     </h2>
   </div>
-
   <div class="bi-period-actions">
     <div class="period-range-wrap">
-      <select class="filter-select" id="pac-period-from" onchange="applyFilters()">
+      <select class="filter-select" id="pac-period-from" onchange="applyPacFilters()">
         {% for r in reports %}
         <option value="{{ r.period_key }}"
           {% if period_from == r.period_key or (not period_from and loop.first) %}selected{% endif %}>
@@ -35,7 +36,7 @@
         {% endfor %}
       </select>
       <span class="period-range-sep">até</span>
-      <select class="filter-select" id="pac-period-to" onchange="applyFilters()">
+      <select class="filter-select" id="pac-period-to" onchange="applyPacFilters()">
         {% for r in reports %}
         <option value="{{ r.period_key }}"
           {% if period_to == r.period_key or (not period_to and loop.first) %}selected{% endif %}>
@@ -44,235 +45,308 @@
         {% endfor %}
       </select>
     </div>
-
-    <select class="filter-select" id="pac-unit" onchange="applyFilters()">
+    <select class="filter-select" id="pac-unit" onchange="applyPacFilters()">
       <option value="">Todas as unidades</option>
     </select>
   </div>
 </div>
 
-{# Filtro de busca #}
-<div class="lst-filters" style="margin-top:12px">
-  <div class="lst-filter-group" style="flex:1;min-width:220px">
-    <label class="lst-label">Buscar paciente</label>
-    <input type="text" id="pac-search" class="lst-select" placeholder="Nome do paciente…"
-           style="min-width:260px" onkeydown="if(event.key==='Enter')pacBuscar(1)">
+{# Filtro de busca por nome #}
+<div class="pac-filters">
+  <div class="pac-filter-group" style="flex:1">
+    <label class="pac-label">Buscar paciente</label>
+    <input type="text" id="pac-search" class="pac-input"
+           placeholder="Nome do paciente…"
+           onkeydown="if(event.key==='Enter')pacBuscar(1)">
   </div>
-  <button class="lst-btn-buscar" onclick="pacBuscar(1)">Buscar</button>
-  <a class="lst-btn-export" href="#" onclick="pacExportar(event)">↓ Excel</a>
+  <button class="pac-btn-primary" onclick="pacBuscar(1)">Buscar</button>
+  <a class="pac-btn-outline" href="#" onclick="pacExportar(event)">↓ Excel</a>
 </div>
 
-{# Cards de resumo #}
-<div class="hero-grid" id="pac-summary" style="display:none;margin-top:4px">
+{# Cards de resumo — aparecem após busca #}
+<div class="hero-grid" id="pac-summary" style="display:none;margin-bottom:12px">
   <article class="hero-card">
     <span class="hero-label">Pacientes</span>
     <span class="hero-value" id="pac-cnt">—</span>
+  </article>
+  <article class="hero-card">
+    <span class="hero-label">Total Agendamentos</span>
+    <span class="hero-value" id="pac-agend">—</span>
   </article>
   <article class="hero-card hero-green">
     <span class="hero-label">Total Finalizados</span>
     <span class="hero-value" id="pac-fin">—</span>
   </article>
   <article class="hero-card">
-    <span class="hero-label">Média por Paciente</span>
+    <span class="hero-label">Média Finalizados</span>
     <span class="hero-value" id="pac-avg">—</span>
-    <span class="hero-sub">atendimentos finalizados</span>
+    <span class="hero-sub">por paciente</span>
   </article>
 </div>
 
 {# Tabela #}
-<article class="dashboard-card glass" style="padding:0;overflow:hidden;margin-top:12px">
+<article class="dashboard-card glass" style="padding:0;overflow:hidden">
   <div style="overflow-x:auto">
     <table class="bi-table bi-table-green" id="pac-table">
       <thead>
         <tr>
-          <th style="width:32px"></th>
+          <th style="width:28px"></th>
           <th>Paciente</th>
-          <th class="right">Agendamentos</th>
-          <th class="right">Finalizados</th>
-          <th class="right">% Comp.</th>
+          <th class="right" style="width:110px">Agendamentos</th>
+          <th class="right" style="width:100px">Finalizados</th>
+          <th class="right" style="width:80px">% Comp.</th>
           <th>Tipos de Atendimento</th>
         </tr>
       </thead>
       <tbody id="pac-tbody">
-        <tr><td colspan="6" style="text-align:center;padding:48px;color:var(--muted)">
-          Use os filtros acima e clique em Buscar.
-        </td></tr>
+        <tr><td colspan="6" class="pac-empty">Use os filtros acima e clique em Buscar.</td></tr>
       </tbody>
     </table>
   </div>
-  <div class="lst-pagination" id="pac-pagination" style="display:none">
-    <button class="lst-page-btn" id="pac-prev" onclick="pacBuscar(pacState.page-1)">‹ Anterior</button>
-    <span id="pac-page-info" style="font-size:.82rem;color:var(--muted)"></span>
-    <button class="lst-page-btn" id="pac-next" onclick="pacBuscar(pacState.page+1)">Próxima ›</button>
+  <div class="pac-pagination" id="pac-pagination" style="display:none">
+    <button class="pac-page-btn" id="pac-prev" onclick="pacBuscar(pacState.page-1)">‹ Anterior</button>
+    <span id="pac-page-info"></span>
+    <button class="pac-page-btn" id="pac-next" onclick="pacBuscar(pacState.page+1)">Próxima ›</button>
   </div>
 </article>
 
 <style>
-.pac-tipos { display:flex; flex-wrap:wrap; gap:5px; }
-.pac-tipo-badge {
-  display:inline-flex; align-items:center; gap:4px;
-  background:var(--primary-faint, rgba(61,107,26,.1));
-  color:var(--primary, #3d6b1a);
-  border-radius:6px; padding:2px 8px; font-size:.75rem; font-weight:600;
-  white-space:nowrap;
+/* ── Filtros ── */
+.pac-filters {
+  display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 14px; padding: 16px 18px; margin: 12px 0;
 }
-.pac-tipo-badge .pac-tipo-cnt {
-  background:var(--primary, #3d6b1a); color:#fff;
-  border-radius:4px; padding:1px 5px; font-size:.7rem;
+.pac-filter-group { display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
+.pac-label { font-size: .72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.pac-input {
+  padding: 8px 12px; border-radius: 9px; border: 1.5px solid var(--line);
+  background: var(--bg); color: var(--text); font-size: .84rem; outline: none;
+  min-width: 280px;
 }
-.pac-expand-row td { padding:0 !important; border-bottom:2px solid var(--primary-faint, rgba(61,107,26,.15)); }
-.pac-expand-inner {
-  padding:12px 16px 14px 52px;
-  background:var(--primary-faint, rgba(61,107,26,.05));
+.pac-input:focus { border-color: var(--primary); }
+.pac-btn-primary {
+  padding: 8px 22px; border-radius: 9px; border: none; cursor: pointer;
+  background: var(--primary); color: #fff; font-weight: 700; font-size: .84rem;
+  align-self: flex-end; white-space: nowrap;
 }
-.pac-expand-inner table { border-collapse:collapse; font-size:.82rem; }
-.pac-expand-inner td { padding:4px 14px 4px 0; }
-.pac-expand-inner td:last-child { font-weight:700; color:var(--primary,#3d6b1a); }
+.pac-btn-primary:hover { filter: brightness(1.08); }
+.pac-btn-outline {
+  padding: 8px 16px; border-radius: 9px; border: 1.5px solid var(--primary);
+  color: var(--primary); font-weight: 700; font-size: .84rem;
+  text-decoration: none; align-self: flex-end; white-space: nowrap;
+}
+.pac-btn-outline:hover { background: rgba(61,107,26,.07); }
+
+/* ── Tabela ── */
+.pac-empty { text-align: center; padding: 48px; color: var(--muted); }
+
+/* ── Expand ── */
 .pac-expand-btn {
-  background:none; border:none; cursor:pointer;
-  color:var(--muted); font-size:1rem; padding:0 4px;
-  transition:transform .15s;
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 1rem; line-height: 1;
+  padding: 2px 4px; border-radius: 4px; transition: transform .15s, color .1s;
 }
-.pac-expand-btn.open { transform:rotate(90deg); color:var(--primary,#3d6b1a); }
+.pac-expand-btn.open { transform: rotate(90deg); color: var(--primary); }
+.pac-expand-btn:hover { color: var(--primary); }
+
+.pac-detail-row td { padding: 0 !important; }
+.pac-detail-inner {
+  padding: 10px 16px 12px 44px;
+  background: var(--primary-faint, rgba(61,107,26,.04));
+  border-bottom: 2px solid rgba(61,107,26,.12);
+}
+.pac-detail-grid {
+  display: flex; flex-wrap: wrap; gap: 6px 20px;
+}
+.pac-detail-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: .81rem; color: var(--text);
+}
+.pac-detail-item .pac-tipo-nome {
+  color: var(--muted); font-weight: 500;
+}
+.pac-detail-item .pac-tipo-cnt {
+  background: var(--primary); color: #fff;
+  border-radius: 5px; padding: 1px 7px;
+  font-size: .73rem; font-weight: 700; min-width: 22px; text-align: center;
+}
+
+/* ── Badges inline (top 3 tipos) ── */
+.pac-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.pac-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(61,107,26,.09); color: var(--primary);
+  border-radius: 6px; padding: 2px 7px;
+  font-size: .75rem; font-weight: 600; white-space: nowrap;
+  max-width: 200px; overflow: hidden;
+}
+.pac-badge span { font-weight: 700; }
+.pac-more {
+  font-size: .73rem; color: var(--muted); font-style: italic; align-self: center;
+}
+
+/* ── Paginação ── */
+.pac-pagination {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  padding: 14px; border-top: 1px solid var(--line);
+}
+.pac-page-btn {
+  padding: 6px 16px; border-radius: 8px; border: 1.5px solid var(--line);
+  background: none; cursor: pointer; font-size: .84rem; font-weight: 600;
+  color: var(--primary);
+}
+.pac-page-btn:disabled { opacity: .35; cursor: default; }
+#pac-page-info { font-size: .82rem; color: var(--muted); }
 </style>
 
 <script>
-const PAC_REPORTS = {{ reports | tojson }};
+const PAC_REPORTS    = {{ reports | tojson }};
 const PAC_PERIOD_FROM = {{ (period_from or '') | tojson }};
 const PAC_PERIOD_TO   = {{ (period_to   or '') | tojson }};
 const PAC_UNIT        = {{ (current_unit or '') | tojson }};
 
-let pacState = { page: 1, pages: 1, period_from: PAC_PERIOD_FROM, period_to: PAC_PERIOD_TO, unit: PAC_UNIT };
+let pacState = { page: 1, pages: 1 };
 
-// Preenche select de unidades via BI API
-async function loadUnits() {
-  const pf = document.getElementById('pac-period-from')?.value || '';
-  const pt = document.getElementById('pac-period-to')?.value   || '';
+// ── Unidades via bi_reports ──────────────────────────────────────────────
+(async () => {
+  const pf = PAC_PERIOD_FROM || PAC_REPORTS[0]?.period_key || '';
+  const pt = PAC_PERIOD_TO   || pf;
   try {
     const r = await fetch(`/bi/listagem/profissionais?period_from=${pf}&period_to=${pt}`);
-    // Busca unidades diretamente
-    const rb = await fetch(`/bi?period_from=${pf}&period_to=${pt}`, {headers: {'Accept':'text/html'}});
-  } catch(_){}
-
-  // Alternativa: lista fixa via bi_atendimentos (convenios endpoint retorna unidades? Não temos endpoint separado)
-  // Usa lista do bi_reports se disponível
+    // Sem endpoint de unidades dedicado; carrega via fetch ao BI
+    // Alternativa: lê unidades do bi_atendimentos (apenas as disponíveis)
+  } catch(_) {}
+  // Pré-seleciona unidade da URL
   const sel = document.getElementById('pac-unit');
-  if (!sel) return;
-  const cur = PAC_UNIT;
-  // Mantém o valor atual selecionado se houver
-  if (cur) {
-    const opt = document.createElement('option');
-    opt.value = cur; opt.text = cur; opt.selected = true;
-    sel.appendChild(opt);
+  if (PAC_UNIT) {
+    const o = new Option(PAC_UNIT, PAC_UNIT, true, true);
+    sel.appendChild(o);
   }
-}
+})();
 
-function applyFilters() {
-  const pf = document.getElementById('pac-period-from')?.value || '';
-  const pt = document.getElementById('pac-period-to')?.value   || '';
-  const un = document.getElementById('pac-unit')?.value        || '';
+function applyPacFilters() {
+  const pf = document.getElementById('pac-period-from').value;
+  const pt = document.getElementById('pac-period-to').value;
+  const un = document.getElementById('pac-unit').value;
   let url = '/bi/pacientes?';
   if (pf) url += `period_from=${encodeURIComponent(pf)}&`;
   if (pt) url += `period_to=${encodeURIComponent(pt)}&`;
   if (un) url += `unit=${encodeURIComponent(un)}`;
-  window.location.href = url;
+  location.href = url;
 }
 
 function pacUrlParams(page) {
-  const pf     = document.getElementById('pac-period-from')?.value || PAC_PERIOD_FROM;
-  const pt     = document.getElementById('pac-period-to')?.value   || PAC_PERIOD_TO;
-  const unit   = document.getElementById('pac-unit')?.value        || PAC_UNIT;
-  const search = document.getElementById('pac-search')?.value.trim() || '';
+  const pf   = document.getElementById('pac-period-from').value || PAC_PERIOD_FROM;
+  const pt   = document.getElementById('pac-period-to').value   || PAC_PERIOD_TO;
+  const unit = document.getElementById('pac-unit').value        || PAC_UNIT;
+  const srch = (document.getElementById('pac-search').value || '').trim();
   const p = new URLSearchParams();
-  if (pf)     p.set('period_from', pf);
-  if (pt)     p.set('period_to',   pt);
-  if (unit)   p.set('unit',        unit);
-  if (search) p.set('search',      search);
-  p.set('page',     page);
-  p.set('per_page', 50);
+  if (pf)   p.set('period_from', pf);
+  if (pt)   p.set('period_to',   pt);
+  if (unit) p.set('unit', unit);
+  if (srch) p.set('search', srch);
+  p.set('page', page); p.set('per_page', 50);
   return p.toString();
 }
 
-function fmtTipos(tipos) {
-  if (!tipos || !tipos.length) return '<span style="color:var(--muted);font-size:.8rem">—</span>';
-  return '<div class="pac-tipos">' +
+// Encurta nome do tipo de atendimento para exibição inline
+function shortTipo(nome) {
+  const map = {
+    'cbo desconhecido ou não informado pelo solicitante': 'CBO n/informado',
+    'cbo desconhecido':  'CBO n/informado',
+    'fisioterapeuta geral': 'Fisioterapeuta',
+    'médico clínico': 'Médico clínico',
+    'psicólogo clínico': 'Psicólogo',
+    'assistente social': 'Assist. Social',
+    'enfermeiro': 'Enfermeiro',
+    'nutricionista': 'Nutricionista',
+  };
+  const key = nome.toLowerCase();
+  return map[key] || (nome.length > 22 ? nome.substring(0, 20) + '…' : nome);
+}
+
+function renderBadges(tipos) {
+  if (!tipos || !tipos.length)
+    return '<span style="color:var(--muted);font-size:.8rem">—</span>';
+  const top = tipos.slice(0, 3);
+  const rest = tipos.length - 3;
+  let html = '<div class="pac-badges">';
+  top.forEach(t => {
+    html += `<span class="pac-badge">${shortTipo(t.nome)} <span>${t.qtde}</span></span>`;
+  });
+  if (rest > 0)
+    html += `<span class="pac-more">+${rest} tipo${rest > 1 ? 's' : ''}</span>`;
+  html += '</div>';
+  return html;
+}
+
+function renderDetail(tipos) {
+  return '<div class="pac-detail-grid">' +
     tipos.map(t =>
-      `<span class="pac-tipo-badge">${t.nome}<span class="pac-tipo-cnt">${t.qtde}</span></span>`
+      `<div class="pac-detail-item">
+        <span class="pac-tipo-cnt">${t.qtde}</span>
+        <span class="pac-tipo-nome">${t.nome}</span>
+      </div>`
     ).join('') +
     '</div>';
 }
 
-function toggleExpand(btn, tipos, rowIdx) {
-  const tbody = document.getElementById('pac-tbody');
-  const existingExpand = document.getElementById(`pac-expand-${rowIdx}`);
-  if (existingExpand) {
-    existingExpand.remove();
-    btn.classList.remove('open');
-    return;
-  }
+function toggleDetail(btn, tipos, rowIdx) {
+  const existing = document.getElementById(`pac-detail-${rowIdx}`);
+  if (existing) { existing.remove(); btn.classList.remove('open'); return; }
   btn.classList.add('open');
-  const expandRow = document.createElement('tr');
-  expandRow.id = `pac-expand-${rowIdx}`;
-  expandRow.className = 'pac-expand-row';
-  const inner = tipos.map(t =>
-    `<tr><td>${t.nome}</td><td>${t.qtde} atend.</td></tr>`
-  ).join('');
-  expandRow.innerHTML = `<td colspan="6" class="pac-expand-row">
-    <div class="pac-expand-inner">
-      <table><thead><tr><td style="font-weight:700;color:var(--muted);font-size:.72rem;text-transform:uppercase;padding-bottom:6px">Tipo de Atendimento</td><td style="font-weight:700;color:var(--muted);font-size:.72rem;text-transform:uppercase;padding-bottom:6px">Qtde</td></tr></thead>
-      <tbody>${inner}</tbody></table>
-    </div>
-  </td>`;
-  // Insere após a linha do botão
-  const rows = tbody.querySelectorAll('tr.pac-main-row');
-  const targetRow = rows[rowIdx];
-  if (targetRow && targetRow.nextSibling) {
-    tbody.insertBefore(expandRow, targetRow.nextSibling);
-  } else if (targetRow) {
-    tbody.appendChild(expandRow);
-  }
+  const dr = document.createElement('tr');
+  dr.id = `pac-detail-${rowIdx}`;
+  dr.className = 'pac-detail-row';
+  dr.innerHTML = `<td colspan="6"><div class="pac-detail-inner">${renderDetail(tipos)}</div></td>`;
+  const mainRows = document.querySelectorAll('#pac-tbody tr.pac-main');
+  const target = mainRows[rowIdx];
+  if (target) target.insertAdjacentElement('afterend', dr);
 }
 
 async function pacBuscar(page) {
   if (page < 1 || page > pacState.pages) return;
   pacState.page = page;
-
   const tbody = document.getElementById('pac-tbody');
-  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">Carregando…</td></tr>';
+  tbody.innerHTML = `<tr><td colspan="6" class="pac-empty">Carregando…</td></tr>`;
 
   try {
     const res  = await fetch('/bi/pacientes/data?' + pacUrlParams(page));
     const data = await res.json();
-    if (!data.ok) { tbody.innerHTML = `<tr><td colspan="6" style="color:red;padding:20px">${data.erro}</td></tr>`; return; }
-
+    if (!data.ok) {
+      tbody.innerHTML = `<tr><td colspan="6" style="color:red;padding:20px">${data.erro}</td></tr>`;
+      return;
+    }
     pacState.pages = data.pages;
 
-    // Summary
-    const totalFin = data.rows.reduce((s, r) => s + r.finalizados, 0);
-    const avg = data.total > 0 ? (totalFin / data.total).toFixed(1) : '0';
-    document.getElementById('pac-cnt').textContent = data.total.toLocaleString('pt-BR');
-    document.getElementById('pac-fin').textContent = totalFin.toLocaleString('pt-BR');
-    document.getElementById('pac-avg').textContent = avg.replace('.',',');
+    // Cards (totais reais vindos da API)
+    document.getElementById('pac-cnt').textContent   = data.total.toLocaleString('pt-BR');
+    document.getElementById('pac-agend').textContent = (data.total_agend || 0).toLocaleString('pt-BR');
+    document.getElementById('pac-fin').textContent   = (data.total_fin  || 0).toLocaleString('pt-BR');
+    document.getElementById('pac-avg').textContent   = String(data.avg_fin || 0).replace('.', ',');
     document.getElementById('pac-summary').style.display = '';
 
     if (!data.rows.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">Nenhum paciente encontrado.</td></tr>';
+      tbody.innerHTML = `<tr><td colspan="6" class="pac-empty">Nenhum paciente encontrado.</td></tr>`;
     } else {
-      const start = (page - 1) * 50;
       tbody.innerHTML = data.rows.map((r, i) => {
-        const idx    = i;
-        const pct    = r.agendamentos > 0 ? Math.round(r.finalizados / r.agendamentos * 100) : 0;
-        const hasTip = r.tipos && r.tipos.length > 0;
-        const tipHtml = fmtTipos(r.tipos);
-        return `<tr class="pac-main-row" data-idx="${idx}">
-          <td style="text-align:center">
-            ${hasTip ? `<button class="pac-expand-btn" onclick="toggleExpand(this, ${JSON.stringify(r.tipos).replace(/"/g,"&quot;")}, ${idx})" title="Ver por tipo">›</button>` : ''}
+        const pct     = r.agendamentos > 0 ? Math.round(r.finalizados / r.agendamentos * 100) : 0;
+        const pctColor = pct >= 70 ? 'var(--primary)' : pct >= 50 ? '#c47b00' : '#b83030';
+        const hasTipos = r.tipos && r.tipos.length > 0;
+        const tiposJson = hasTipos ? JSON.stringify(r.tipos) : '[]';
+        return `<tr class="pac-main" data-idx="${i}">
+          <td style="text-align:center;width:28px">
+            ${hasTipos
+              ? `<button class="pac-expand-btn" title="Detalhar tipos"
+                   onclick='toggleDetail(this, ${tiposJson.replace(/'/g,"&#39;")}, ${i})'>›</button>`
+              : ''}
           </td>
-          <td style="font-weight:600">${r.nome}</td>
+          <td style="font-weight:600;white-space:nowrap">${r.nome}</td>
           <td class="right">${r.agendamentos}</td>
-          <td class="right" style="color:var(--primary,#3d6b1a);font-weight:700">${r.finalizados}</td>
-          <td class="right">${pct}%</td>
-          <td>${tipHtml}</td>
+          <td class="right" style="font-weight:700;color:var(--primary)">${r.finalizados}</td>
+          <td class="right" style="font-weight:600;color:${pctColor}">${pct}%</td>
+          <td>${renderBadges(r.tipos)}</td>
         </tr>`;
       }).join('');
     }
@@ -281,7 +355,7 @@ async function pacBuscar(page) {
     const pg = document.getElementById('pac-pagination');
     pg.style.display = data.pages > 1 ? '' : 'none';
     document.getElementById('pac-page-info').textContent =
-      `Página ${data.page} de ${data.pages} — ${data.total} pacientes`;
+      `Página ${data.page} de ${data.pages} · ${data.total.toLocaleString('pt-BR')} pacientes`;
     document.getElementById('pac-prev').disabled = data.page <= 1;
     document.getElementById('pac-next').disabled = data.page >= data.pages;
 
@@ -292,15 +366,11 @@ async function pacBuscar(page) {
 
 function pacExportar(e) {
   e.preventDefault();
-  // Exporta todos os dados como CSV simples via janela
-  alert('Em breve: exportação Excel dos dados analíticos.');
+  // TODO: implementar exportação Excel
+  alert('Exportação em breve.');
 }
 
-// Init
-loadUnits();
-// Busca automática se já tem período
-if (PAC_PERIOD_FROM || PAC_PERIOD_TO) {
-  pacBuscar(1);
-}
+// Busca automática se período já está definido
+if (PAC_PERIOD_FROM || PAC_PERIOD_TO) pacBuscar(1);
 </script>
 {% endblock %}

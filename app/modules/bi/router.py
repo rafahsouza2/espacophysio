@@ -527,10 +527,13 @@ async def bi_pacientes_data(
         # Ordena por finalizados desc
         pacs = sorted(pac_map.values(), key=lambda x: -x["finalizados"])
         total = len(pacs)
+        total_agend = sum(p["agendamentos"] for p in pacs)
+        total_fin   = sum(p["finalizados"]  for p in pacs)
+        avg_fin     = round(total_fin / total, 1) if total else 0.0
 
         # Paginação
         start = (page - 1) * per_page
-        page_data = pacs[start:start + per_page]
+        page_data = [dict(p) for p in pacs[start:start + per_page]]
 
         # Serializa tipos como lista ordenada
         for p in page_data:
@@ -538,12 +541,15 @@ async def bi_pacientes_data(
                           for k, v in sorted(p["tipos"].items(), key=lambda x: -x[1])]
 
         return JSONResponse({
-            "ok": True,
-            "rows": page_data,
+            "ok":    True,
+            "rows":  page_data,
             "total": total,
-            "page": page,
+            "total_agend": total_agend,
+            "total_fin":   total_fin,
+            "avg_fin":     avg_fin,
+            "page":     page,
             "per_page": per_page,
-            "pages": max(1, -(-total // per_page)),
+            "pages":    max(1, -(-total // per_page)),
         })
     except Exception as e:
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=500)
