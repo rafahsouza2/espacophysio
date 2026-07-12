@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+{% block title %}Analítico de Pacientes{% endblock %}
+
+{% block sidebar_extra %}
+<div class="bi-sidebar-tabs" id="pac-sidebar-tabs">
+  <a class="bi-sidebar-tab" href="/bi">← B.I — Indicadores</a>
+  <div class="bi-sidebar-sep"></div>
+  <span class="bi-sidebar-tab active">Analítico de Pacientes</span>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="bi-header">
+  <div>
+    <span class="bi-label">PACIENTES — ANALÍTICO</span>
+    <h2 class="bi-title" id="pac-title">
+      {% if period_from and period_to and period_from != period_to %}
+        {{ period_from }} – {{ period_to }}
+      {% elif period_from %}
+        {{ period_from }}
+      {% else %}
+        Todos os períodos
+      {% endif %}
+    </h2>
+  </div>
+
+  <div class="bi-period-actions">
+    <div class="period-range-wrap">
+      <select class="filter-select" id="pac-period-from" onchange="applyFilters()">
+        {% for r in reports %}
+        <option value="{{ r.period_key }}"
+          {% if period_from == r.period_key or (not period_from and loop.first) %}selected{% endif %}>
+          {{ r.periodo_label }}
+        </option>
+        {% endfor %}
+      </select>
+      <span class="period-range-sep">até</span>
+      <select class="filter-select" id="pac-period-to" onchange="applyFilters()">
+        {% for r in reports %}
+        <option value="{{ r.period_key }}"
+          {% if period_to == r.period_key or (not period_to and loop.first) %}selected{% endif %}>
+          {{ r.periodo_label }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <select class="filter-select" id="pac-unit" onchange="applyFilters()">
+      <option value="">Todas as unidades</option>
+    </select>
+  </div>
+</div>
+
+{# Filtro de busca #}
+<div class="lst-filters" style="margin-top:12px">
+  <div class="lst-filter-group" style="flex:1;min-width:220px">
+    <label class="lst-label">Buscar paciente</label>
+    <input type="text" id="pac-search" class="lst-select" placeholder="Nome do paciente…"
+           style="min-width:260px" onkeydown="if(event.key==='Enter')pacBuscar(1)">
+  </div>
+  <button class="lst-btn-buscar" onclick="pacBuscar(1)">Buscar</button>
+  <a class="lst-btn-export" href="#" onclick="pacExportar(event)">↓ Excel</a>
+</div>
+
+{# Cards de resumo #}
+<div class="hero-grid" id="pac-summary" style="display:none;margin-top:4px">
+  <article class="hero-card">
+    <span class="hero-label">Pacientes</span>
+    <span class="hero-value" id="pac-cnt">—</span>
+  </article>
+  <article class="hero-card hero-green">
+    <span class="hero-label">Total Finalizados</span>
+    <span class="hero-value" id="pac-fin">—</span>
+  </article>
+  <article class="hero-card">
+    <span class="hero-label">Média por Paciente</span>
+    <span class="hero-value" id="pac-avg">—</span>
+    <span class="hero-sub">atendimentos finalizados</span>
+  </article>
+</div>
+
+{# Tabela #}
+<article class="dashboard-card glass" style="padding:0;overflow:hidden;margin-top:12px">
+  <div style="overflow-x:auto">
+    <table class="bi-table bi-table-green" id="pac-table">
+      <thead>
+        <tr>
+          <th style="width:32px"></th>
+          <th>Paciente</th>
+          <th class="right">Agendamentos</th>
+          <th class="right">Finalizados</th>
+          <th class="right">% Comp.</th>
+          <th>Tipos de Atendimento</th>
+        </tr>
+      </thead>
+      <tbody id="pac-tbody">
+        <tr><td colspan="6" style="text-align:center;padding:48px;color:var(--muted)">
+          Use os filtros acima e clique em Buscar.
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="lst-pagination" id="pac-pagination" style="display:none">
+    <button class="lst-page-btn" id="pac-prev" onclick="pacBuscar(pacState.page-1)">‹ Anterior</button>
+    <span id="pac-page-info" style="font-size:.82rem;color:var(--muted)"></span>
+    <button class="lst-page-btn" id="pac-next" onclick="pacBuscar(pacState.page+1)">Próxima ›</button>
+  </div>
+</article>
+
+<style>
+.pac-tipos { display:flex; flex-wrap:wrap; gap:5px; }
+.pac-tipo-badge {
+  display:inline-flex; align-items:center; gap:4px;
+  background:var(--primary-faint, rgba(61,107,26,.1));
+  color:var(--primary, #3d6b1a);
+  border-radius:6px; padding:2px 8px; font-size:.75rem; font-weight:600;
+  white-space:nowrap;
+}
+.pac-tipo-badge .pac-tipo-cnt {
+  background:var(--primary, #3d6b1a); color:#fff;
+  border-radius:4px; padding:1px 5px; font-size:.7rem;
+}
+.pac-expand-row td { padding:0 !important; border-bottom:2px solid var(--primary-faint, rgba(61,107,26,.15)); }
+.pac-expand-inner {
+  padding:12px 16px 14px 52px;
+  background:var(--primary-faint, rgba(61,107,26,.05));
+}
+.pac-expand-inner table { border-collapse:collapse; font-size:.82rem; }
+.pac-expand-inner td { padding:4px 14px 4px 0; }
+.pac-expand-inner td:last-child { font-weight:700; color:var(--primary,#3d6b1a); }
+.pac-expand-btn {
+  background:none; border:none; cursor:pointer;
+  color:var(--muted); font-size:1rem; padding:0 4px;
+  transition:transform .15s;
+}
+.pac-expand-btn.open { transform:rotate(90deg); color:var(--primary,#3d6b1a); }
+</style>
+
+<script>
+const PAC_REPORTS = {{ reports | tojson }};
+const PAC_PERIOD_FROM = {{ (period_from or '') | tojson }};
+const PAC_PERIOD_TO   = {{ (period_to   or '') | tojson }};
+const PAC_UNIT        = {{ (current_unit or '') | tojson }};
+
+let pacState = { page: 1, pages: 1, period_from: PAC_PERIOD_FROM, period_to: PAC_PERIOD_TO, unit: PAC_UNIT };
+
+// Preenche select de unidades via BI API
+async function loadUnits() {
+  const pf = document.getElementById('pac-period-from')?.value || '';
+  const pt = document.getElementById('pac-period-to')?.value   || '';
+  try {
+    const r = await fetch(`/bi/listagem/profissionais?period_from=${pf}&period_to=${pt}`);
+    // Busca unidades diretamente
+    const rb = await fetch(`/bi?period_from=${pf}&period_to=${pt}`, {headers: {'Accept':'text/html'}});
+  } catch(_){}
+
+  // Alternativa: lista fixa via bi_atendimentos (convenios endpoint retorna unidades? Não temos endpoint separado)
+  // Usa lista do bi_reports se disponível
+  const sel = document.getElementById('pac-unit');
+  if (!sel) return;
+  const cur = PAC_UNIT;
+  // Mantém o valor atual selecionado se houver
+  if (cur) {
+    const opt = document.createElement('option');
+    opt.value = cur; opt.text = cur; opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+function applyFilters() {
+  const pf = document.getElementById('pac-period-from')?.value || '';
+  const pt = document.getElementById('pac-period-to')?.value   || '';
+  const un = document.getElementById('pac-unit')?.value        || '';
+  let url = '/bi/pacientes?';
+  if (pf) url += `period_from=${encodeURIComponent(pf)}&`;
+  if (pt) url += `period_to=${encodeURIComponent(pt)}&`;
+  if (un) url += `unit=${encodeURIComponent(un)}`;
+  window.location.href = url;
+}
+
+function pacUrlParams(page) {
+  const pf     = document.getElementById('pac-period-from')?.value || PAC_PERIOD_FROM;
+  const pt     = document.getElementById('pac-period-to')?.value   || PAC_PERIOD_TO;
+  const unit   = document.getElementById('pac-unit')?.value        || PAC_UNIT;
+  const search = document.getElementById('pac-search')?.value.trim() || '';
+  const p = new URLSearchParams();
+  if (pf)     p.set('period_from', pf);
+  if (pt)     p.set('period_to',   pt);
+  if (unit)   p.set('unit',        unit);
+  if (search) p.set('search',      search);
+  p.set('page',     page);
+  p.set('per_page', 50);
+  return p.toString();
+}
+
+function fmtTipos(tipos) {
+  if (!tipos || !tipos.length) return '<span style="color:var(--muted);font-size:.8rem">—</span>';
+  return '<div class="pac-tipos">' +
+    tipos.map(t =>
+      `<span class="pac-tipo-badge">${t.nome}<span class="pac-tipo-cnt">${t.qtde}</span></span>`
+    ).join('') +
+    '</div>';
+}
+
+function toggleExpand(btn, tipos, rowIdx) {
+  const tbody = document.getElementById('pac-tbody');
+  const existingExpand = document.getElementById(`pac-expand-${rowIdx}`);
+  if (existingExpand) {
+    existingExpand.remove();
+    btn.classList.remove('open');
+    return;
+  }
+  btn.classList.add('open');
+  const expandRow = document.createElement('tr');
+  expandRow.id = `pac-expand-${rowIdx}`;
+  expandRow.className = 'pac-expand-row';
+  const inner = tipos.map(t =>
+    `<tr><td>${t.nome}</td><td>${t.qtde} atend.</td></tr>`
+  ).join('');
+  expandRow.innerHTML = `<td colspan="6" class="pac-expand-row">
+    <div class="pac-expand-inner">
+      <table><thead><tr><td style="font-weight:700;color:var(--muted);font-size:.72rem;text-transform:uppercase;padding-bottom:6px">Tipo de Atendimento</td><td style="font-weight:700;color:var(--muted);font-size:.72rem;text-transform:uppercase;padding-bottom:6px">Qtde</td></tr></thead>
+      <tbody>${inner}</tbody></table>
+    </div>
+  </td>`;
+  // Insere após a linha do botão
+  const rows = tbody.querySelectorAll('tr.pac-main-row');
+  const targetRow = rows[rowIdx];
+  if (targetRow && targetRow.nextSibling) {
+    tbody.insertBefore(expandRow, targetRow.nextSibling);
+  } else if (targetRow) {
+    tbody.appendChild(expandRow);
+  }
+}
+
+async function pacBuscar(page) {
+  if (page < 1 || page > pacState.pages) return;
+  pacState.page = page;
+
+  const tbody = document.getElementById('pac-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">Carregando…</td></tr>';
+
+  try {
+    const res  = await fetch('/bi/pacientes/data?' + pacUrlParams(page));
+    const data = await res.json();
+    if (!data.ok) { tbody.innerHTML = `<tr><td colspan="6" style="color:red;padding:20px">${data.erro}</td></tr>`; return; }
+
+    pacState.pages = data.pages;
+
+    // Summary
+    const totalFin = data.rows.reduce((s, r) => s + r.finalizados, 0);
+    const avg = data.total > 0 ? (totalFin / data.total).toFixed(1) : '0';
+    document.getElementById('pac-cnt').textContent = data.total.toLocaleString('pt-BR');
+    document.getElementById('pac-fin').textContent = totalFin.toLocaleString('pt-BR');
+    document.getElementById('pac-avg').textContent = avg.replace('.',',');
+    document.getElementById('pac-summary').style.display = '';
+
+    if (!data.rows.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">Nenhum paciente encontrado.</td></tr>';
+    } else {
+      const start = (page - 1) * 50;
+      tbody.innerHTML = data.rows.map((r, i) => {
+        const idx    = i;
+        const pct    = r.agendamentos > 0 ? Math.round(r.finalizados / r.agendamentos * 100) : 0;
+        const hasTip = r.tipos && r.tipos.length > 0;
+        const tipHtml = fmtTipos(r.tipos);
+        return `<tr class="pac-main-row" data-idx="${idx}">
+          <td style="text-align:center">
+            ${hasTip ? `<button class="pac-expand-btn" onclick="toggleExpand(this, ${JSON.stringify(r.tipos).replace(/"/g,"&quot;")}, ${idx})" title="Ver por tipo">›</button>` : ''}
+          </td>
+          <td style="font-weight:600">${r.nome}</td>
+          <td class="right">${r.agendamentos}</td>
+          <td class="right" style="color:var(--primary,#3d6b1a);font-weight:700">${r.finalizados}</td>
+          <td class="right">${pct}%</td>
+          <td>${tipHtml}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // Paginação
+    const pg = document.getElementById('pac-pagination');
+    pg.style.display = data.pages > 1 ? '' : 'none';
+    document.getElementById('pac-page-info').textContent =
+      `Página ${data.page} de ${data.pages} — ${data.total} pacientes`;
+    document.getElementById('pac-prev').disabled = data.page <= 1;
+    document.getElementById('pac-next').disabled = data.page >= data.pages;
+
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="6" style="color:red;padding:20px">Erro: ${e.message}</td></tr>`;
+  }
+}
+
+function pacExportar(e) {
+  e.preventDefault();
+  // Exporta todos os dados como CSV simples via janela
+  alert('Em breve: exportação Excel dos dados analíticos.');
+}
+
+// Init
+loadUnits();
+// Busca automática se já tem período
+if (PAC_PERIOD_FROM || PAC_PERIOD_TO) {
+  pacBuscar(1);
+}
+</script>
+{% endblock %}

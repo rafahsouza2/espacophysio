@@ -430,6 +430,125 @@ async def bi_listagem_export(
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=500)
 
 
+@router.get("/bi/pacientes", response_class=HTMLResponse)
+async def bi_pacientes(
+    request:     Request,
+    period_from: str = None,
+    period_to:   str = None,
+    period:      str = None,
+    unit:        str = None,
+    user=Depends(require_auth),
+):
+    if isinstance(user, RedirectResponse):
+        return user
+    redir = check_module_access(user, "bi")
+    if redir:
+        return redir
+    if period and not period_from:
+        period_from = period_to = period
+    reports = list_reports()
+    return templates.TemplateResponse("bi_pacientes.html", {
+        "request":     request,
+        "user":        user,
+        "active_menu": "bi",
+        "reports":     reports,
+        "period_from": period_from,
+        "period_to":   period_to,
+        "current_unit": unit,
+    })
+
+
+@router.get("/bi/pacientes/data")
+async def bi_pacientes_data(
+    request:     Request,
+    period_from: str = None,
+    period_to:   str = None,
+    period:      str = None,
+    unit:        str = None,
+    search:      str = None,
+    page:        int = 1,
+    per_page:    int = 50,
+    user=Depends(require_auth),
+):
+    if isinstance(user, RedirectResponse):
+        return user
+    if period and not period_from:
+        period_from = period_to = period
+    try:
+        from app.database import get_supabase_admin
+        sb = get_supabase_admin()
+
+        # Busca todas as linhas do período — tenta incluir tipo_atendimento (pode não existir ainda)
+        def _build_query(cols: str):
+            q = sb.table("bi_atendimentos").select(cols)
+            if period_from: q = q.gte("period_key", period_from)
+            if period_to:   q = q.lte("period_key", period_to)
+            if unit:        q = q.eq("unidade", unit)
+            if search:      q = q.ilike("paciente", f"%{search}%")
+            return q
+
+        all_rows: list[dict] = []
+        has_tipo_col = True
+        offset = 0
+        while True:
+            cols = "paciente,especialidade,tipo_atendimento,status,unidade" if has_tipo_col \
+                   else "paciente,especialidade,status,unidade"
+            try:
+                res = _build_query(cols).range(offset, offset + 999).execute()
+            except Exception:
+                has_tipo_col = False
+                res = _build_query("paciente,especialidade,status,unidade").range(offset, offset + 999).execute()
+            batch = res.data or []
+            all_rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            offset += 1000
+
+        # Usa tipo_atendimento se disponível, senão especialidade
+        def _tipo(r):
+            return (r.get("tipo_atendimento") or r.get("especialidade") or "Não informado").strip()
+
+        # Agrega por paciente
+        from collections import defaultdict
+        pac_map: dict[str, dict] = {}
+        for r in all_rows:
+            nome = (r.get("paciente") or "").strip()
+            if not nome:
+                continue
+            status = r.get("status") or ""
+            tipo   = _tipo(r)
+            if nome not in pac_map:
+                pac_map[nome] = {"nome": nome, "agendamentos": 0, "finalizados": 0, "tipos": {}}
+            pac_map[nome]["agendamentos"] += 1
+            if status == "realizado":
+                pac_map[nome]["finalizados"] += 1
+                pac_map[nome]["tipos"][tipo] = pac_map[nome]["tipos"].get(tipo, 0) + 1
+
+        # Ordena por finalizados desc
+        pacs = sorted(pac_map.values(), key=lambda x: -x["finalizados"])
+        total = len(pacs)
+
+        # Paginação
+        start = (page - 1) * per_page
+        page_data = pacs[start:start + per_page]
+
+        # Serializa tipos como lista ordenada
+        for p in page_data:
+            p["tipos"] = [{"nome": k, "qtde": v}
+                          for k, v in sorted(p["tipos"].items(), key=lambda x: -x[1])]
+
+        return JSONResponse({
+            "ok": True,
+            "rows": page_data,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": max(1, -(-total // per_page)),
+        })
+    except Exception as e:
+        return JSONResponse({"ok": False, "erro": str(e)}, status_code=500)
+
+
 @router.post("/bi/upload")
 async def bi_upload(
     request: Request,

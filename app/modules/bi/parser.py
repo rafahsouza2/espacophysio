@@ -64,7 +64,8 @@ DATA_PATH = Path(__file__).parent.parent.parent / "data" / "bi_data.json"
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
 def _save_atendimentos(df: pd.DataFrame, period_key: str,
-                        col_paciente, col_convenio, col_unidade, col_protocolo) -> str | None:
+                        col_paciente, col_convenio, col_unidade, col_protocolo,
+                        col_cod=None) -> str | None:
     """Salva linhas individuais na tabela bi_atendimentos (delete+insert por período)."""
     try:
         from app.database import get_supabase_admin
@@ -86,7 +87,8 @@ def _save_atendimentos(df: pd.DataFrame, period_key: str,
                 "valor":          float(r["_val"]) if "_val" in r else 0.0,
                 "faturado":       bool(r["_faturado"]) if "_faturado" in r else False,
                 "protocolo_lote": str(r[col_protocolo]).strip() if col_protocolo and pd.notna(r.get(col_protocolo)) else None,
-                "status":         str(r["_status"]) if "_status" in r else None,
+                "status":           str(r["_status"]) if "_status" in r else None,
+                "tipo_atendimento": str(r[col_cod]).strip() if col_cod and pd.notna(r.get(col_cod)) else None,
                 "data_nascimento": nasc.strftime("%Y-%m-%d") if nasc is not None and pd.notna(nasc) else None,
                 "sexo":           str(r.get("_sexo", "")).strip() or None,
                 "bairro":         str(r.get("_bairro", "")).strip() or None,
@@ -706,7 +708,7 @@ def parse_xls(content: bytes) -> dict:
 
     # 9. Persistir
     save_error = _save_supabase(result)
-    _save_atendimentos(df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo)
+    _save_atendimentos(df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod)
     result["_save_error"] = save_error
     try:
         DATA_PATH.parent.mkdir(parents=True, exist_ok=True)

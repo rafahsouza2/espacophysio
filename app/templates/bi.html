@@ -13,6 +13,7 @@
   <button class="bi-sidebar-tab" data-target="tab-historico">Histórico</button>
   <div class="bi-sidebar-sep"></div>
   <button class="bi-sidebar-tab" data-target="tab-listagem">Listagem</button>
+  <a class="bi-sidebar-tab" id="pac-link" href="/bi/pacientes">Analítico Pacientes</a>
   <div class="bi-sidebar-sep"></div>
   <button class="bi-sidebar-tab" data-target="tab-executivo">Executivo</button>
   <button class="bi-sidebar-tab" data-target="tab-demografico">Demográfico</button>
@@ -2882,6 +2883,15 @@ function applyFilters() {
   const pTo   = document.getElementById('period-to')?.value   || '';
   const unit  = document.getElementById('unit-select')?.value || '';
   const tab   = document.querySelector('#bi-sidebar-tabs .bi-sidebar-tab.active')?.dataset.target || '';
+  // Atualiza link de analítico de pacientes com período atual
+  const pacLink = document.getElementById('pac-link');
+  if (pacLink) {
+    let pacUrl = '/bi/pacientes?';
+    if (pFrom) pacUrl += `period_from=${encodeURIComponent(pFrom)}&`;
+    if (pTo)   pacUrl += `period_to=${encodeURIComponent(pTo)}&`;
+    if (unit)  pacUrl += `unit=${encodeURIComponent(unit)}`;
+    pacLink.href = pacUrl;
+  }
   let url = '/bi';
   const params = [];
   if (pFrom) params.push('period_from=' + encodeURIComponent(pFrom));
