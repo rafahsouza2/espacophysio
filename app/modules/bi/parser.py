@@ -261,7 +261,7 @@ def parse_xls(content: bytes) -> dict:
     col_sexo      = _col(["Sexo"])
     col_valor     = _col(["Valor Cobrado"])
     col_como      = _col(["Como nos achou"])
-    col_cod       = _col(["Tipo do Atendimento", "digo", "Procedimento"])
+    col_cod       = _col(["Tipo de Atendimento", "Tipo do Atendimento", "digo", "Procedimento"])
     col_agendador = _col(["Agendou", "Usu"])
     col_prof_raw  = _col(["Profissional"])
     col_esp_raw   = _col(["Especialidade"])
