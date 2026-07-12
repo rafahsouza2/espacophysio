@@ -210,14 +210,15 @@ async def bi_listagem(
         from app.database import get_supabase_admin
         sb  = get_supabase_admin()
 
-        def _apply_filters(q):
+        def _apply_filters(q, include_faturado: bool = True):
             if period_from: q = q.gte("period_key", period_from)
             if period_to:   q = q.lte("period_key", period_to)
             if convenio:     q = q.ilike("convenio", f"%{convenio}%")
             if unidade:      q = q.ilike("unidade", f"%{unidade}%")
             if profissional: q = q.ilike("profissional", f"%{profissional}%")
-            if faturado == "sim": q = q.eq("faturado", True)
-            elif faturado == "nao": q = q.eq("faturado", False)
+            if include_faturado:
+                if faturado == "sim": q = q.eq("faturado", True)
+                elif faturado == "nao": q = q.eq("faturado", False)
             return q
 
         qb  = _apply_filters(sb.table("bi_atendimentos").select(
@@ -230,9 +231,10 @@ async def bi_listagem(
         rows  = res.data or []
         total = res.count or 0
 
-        # Totais do filtro atual (sem paginação) — apenas realizados, como o B.I.
+        # Totais sem filtro de faturamento — refletem produção total do período (igual ao B.I.)
         qtot = _apply_filters(
-            sb.table("bi_atendimentos").select("valor,faturado", count="exact")
+            sb.table("bi_atendimentos").select("valor,faturado", count="exact"),
+            include_faturado=False,
         ).eq("status", "realizado")
         tres  = qtot.limit(20000).execute()
         trows = tres.data or []
