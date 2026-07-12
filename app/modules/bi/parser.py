@@ -719,7 +719,8 @@ def parse_xls(content: bytes) -> dict:
 
 # ── Carregar / limpar ─────────────────────────────────────────────────────────
 
-def _calc_profissionais_from_atendimentos(period_from: str, period_to: str) -> list[dict]:
+def _calc_profissionais_from_atendimentos(period_from: str, period_to: str,
+                                           unit: str | None = None) -> list[dict]:
     """Recalcula lista completa de profissionais direto da bi_atendimentos (sem limite de 15)."""
     try:
         from app.database import get_supabase_admin
@@ -728,14 +729,15 @@ def _calc_profissionais_from_atendimentos(period_from: str, period_to: str) -> l
         all_rows: list[dict] = []
         offset = 0
         while True:
-            res = (
+            q = (
                 sb.table("bi_atendimentos")
                   .select("profissional,status,valor,faturado")
                   .gte("period_key", period_from)
                   .lte("period_key", period_to)
-                  .range(offset, offset + 999)
-                  .execute()
             )
+            if unit:
+                q = q.eq("unidade", unit)
+            res = q.range(offset, offset + 999).execute()
             batch = res.data or []
             all_rows.extend(batch)
             if len(batch) < 1000:

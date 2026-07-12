@@ -141,6 +141,14 @@ async def bi_dashboard(
             }
             current_unit = unit
 
+            # Recalcula profissionais da unidade direto de bi_atendimentos (lista completa, sem cap)
+            from app.modules.bi.parser import _calc_profissionais_from_atendimentos
+            unit_profs = _calc_profissionais_from_atendimentos(
+                period_from or period_to or "", period_to or period_from or "", unit
+            )
+            if unit_profs:
+                bi_data["profissionais"] = unit_profs
+
             # Aplica meta específica da unidade (se configurada)
             metas_un = bi_cfg.get("metas_por_unidade", {})
             if unit in metas_un and metas_un[unit] > 0:
