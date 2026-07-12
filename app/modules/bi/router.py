@@ -230,10 +230,11 @@ async def bi_listagem(
         rows  = res.data or []
         total = res.count or 0
 
-        # Totais do filtro atual (sem paginação) para os cards de resumo
-        qtot = _apply_filters(sb.table("bi_atendimentos").select("valor,faturado", count="exact"))
-        # limita a 10k para não sobrecarregar
-        tres  = qtot.limit(10000).execute()
+        # Totais do filtro atual (sem paginação) — apenas realizados, como o B.I.
+        qtot = _apply_filters(
+            sb.table("bi_atendimentos").select("valor,faturado", count="exact")
+        ).eq("status", "realizado")
+        tres  = qtot.limit(20000).execute()
         trows = tres.data or []
         soma_total    = round(sum(r["valor"] or 0 for r in trows), 2)
         soma_faturado = round(sum(r["valor"] or 0 for r in trows if r["faturado"]), 2)
