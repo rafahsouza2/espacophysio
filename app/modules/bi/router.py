@@ -493,13 +493,22 @@ async def bi_pacientes(
         period_from = period_to = period
     reports = list_reports()
 
-    # Busca unidades disponíveis para o filtro
+    # Busca unidades disponíveis para o filtro (loop em lotes — limite Supabase = 1000)
     lista_unidades: list[str] = []
     try:
         from app.database import get_supabase_admin
         sb_u = get_supabase_admin()
-        res_u = sb_u.table("bi_atendimentos").select("unidade").limit(5000).execute()
-        lista_unidades = sorted({r["unidade"] for r in (res_u.data or []) if r.get("unidade")})
+        all_units: set[str] = set()
+        u_offset = 0
+        while True:
+            batch = sb_u.table("bi_atendimentos").select("unidade").range(u_offset, u_offset + 999).execute().data or []
+            for r in batch:
+                if r.get("unidade"):
+                    all_units.add(r["unidade"])
+            if len(batch) < 1000:
+                break
+            u_offset += 1000
+        lista_unidades = sorted(all_units)
     except Exception:
         pass
 
