@@ -2,7 +2,7 @@
 {% block title %}Analítico de Pacientes{% endblock %}
 
 {% block sidebar_extra %}
-<div class="bi-sidebar-tabs" id="pac-sidebar-tabs">
+<div class="bi-sidebar-tabs">
   <a class="bi-sidebar-tab" href="/bi{% if period_from %}?period_from={{ period_from }}{% if period_to %}&period_to={{ period_to }}{% endif %}{% endif %}">← B.I — Indicadores</a>
   <div class="bi-sidebar-sep"></div>
   <span class="bi-sidebar-tab active">Analítico de Pacientes</span>
@@ -11,18 +11,14 @@
 
 {% block content %}
 
-{# Cabeçalho com filtros de período e unidade #}
+{# ── Cabeçalho ── #}
 <div class="bi-header">
   <div>
     <span class="bi-label">PACIENTES — ANALÍTICO</span>
     <h2 class="bi-title">
-      {% if period_from and period_to and period_from != period_to %}
-        {{ period_from }} – {{ period_to }}
-      {% elif period_from %}
-        {{ period_from }}
-      {% else %}
-        Selecione um período
-      {% endif %}
+      {% if period_from and period_to and period_from != period_to %}{{ period_from }} – {{ period_to }}
+      {% elif period_from %}{{ period_from }}
+      {% else %}Selecione um período{% endif %}
     </h2>
   </div>
   <div class="bi-period-actions">
@@ -31,8 +27,7 @@
         {% for r in reports %}
         <option value="{{ r.period_key }}"
           {% if period_from == r.period_key or (not period_from and loop.first) %}selected{% endif %}>
-          {{ r.periodo_label }}
-        </option>
+          {{ r.periodo_label }}</option>
         {% endfor %}
       </select>
       <span class="period-range-sep">até</span>
@@ -40,8 +35,7 @@
         {% for r in reports %}
         <option value="{{ r.period_key }}"
           {% if period_to == r.period_key or (not period_to and loop.first) %}selected{% endif %}>
-          {{ r.periodo_label }}
-        </option>
+          {{ r.periodo_label }}</option>
         {% endfor %}
       </select>
     </div>
@@ -51,9 +45,9 @@
   </div>
 </div>
 
-{# Filtro de busca por nome #}
+{# ── Filtro de busca ── #}
 <div class="pac-filters">
-  <div class="pac-filter-group" style="flex:1">
+  <div style="flex:1;display:flex;flex-direction:column;gap:4px">
     <label class="pac-label">Buscar paciente</label>
     <input type="text" id="pac-search" class="pac-input"
            placeholder="Nome do paciente…"
@@ -63,7 +57,7 @@
   <a class="pac-btn-outline" href="#" onclick="pacExportar(event)">↓ Excel</a>
 </div>
 
-{# Cards de resumo — aparecem após busca #}
+{# ── Cards de resumo ── #}
 <div class="hero-grid" id="pac-summary" style="display:none;margin-bottom:12px">
   <article class="hero-card">
     <span class="hero-label">Pacientes</span>
@@ -84,18 +78,18 @@
   </article>
 </div>
 
-{# Tabela #}
+{# ── Tabela principal ── #}
 <article class="dashboard-card glass" style="padding:0;overflow:hidden">
   <div style="overflow-x:auto">
-    <table class="bi-table bi-table-green" id="pac-table">
+    <table class="bi-table bi-table-green pac-table" id="pac-table">
       <thead>
         <tr>
-          <th style="width:28px"></th>
-          <th>Paciente</th>
+          <th style="width:30%">Paciente</th>
           <th class="right" style="width:110px">Agendamentos</th>
           <th class="right" style="width:100px">Finalizados</th>
           <th class="right" style="width:80px">% Comp.</th>
-          <th>Tipos de Atendimento</th>
+          <th style="width:40%">Tipo de Atendimento</th>
+          <th class="right" style="width:70px">Qtde</th>
         </tr>
       </thead>
       <tbody id="pac-tbody">
@@ -111,24 +105,20 @@
 </article>
 
 <style>
-/* ── Filtros ── */
 .pac-filters {
   display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
   background: var(--card); border: 1px solid var(--line);
   border-radius: 14px; padding: 16px 18px; margin: 12px 0;
 }
-.pac-filter-group { display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
 .pac-label { font-size: .72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .pac-input {
   padding: 8px 12px; border-radius: 9px; border: 1.5px solid var(--line);
-  background: var(--bg); color: var(--text); font-size: .84rem; outline: none;
-  min-width: 280px;
+  background: var(--bg); color: var(--text); font-size: .84rem; outline: none; width: 100%;
 }
 .pac-input:focus { border-color: var(--primary); }
 .pac-btn-primary {
   padding: 8px 22px; border-radius: 9px; border: none; cursor: pointer;
-  background: var(--primary); color: #fff; font-weight: 700; font-size: .84rem;
-  align-self: flex-end; white-space: nowrap;
+  background: var(--primary); color: #fff; font-weight: 700; font-size: .84rem; align-self: flex-end;
 }
 .pac-btn-primary:hover { filter: brightness(1.08); }
 .pac-btn-outline {
@@ -137,93 +127,88 @@
   text-decoration: none; align-self: flex-end; white-space: nowrap;
 }
 .pac-btn-outline:hover { background: rgba(61,107,26,.07); }
-
-/* ── Tabela ── */
 .pac-empty { text-align: center; padding: 48px; color: var(--muted); }
 
-/* ── Expand ── */
-.pac-expand-btn {
-  background: none; border: none; cursor: pointer;
-  color: var(--muted); font-size: 1rem; line-height: 1;
-  padding: 2px 4px; border-radius: 4px; transition: transform .15s, color .1s;
-}
-.pac-expand-btn.open { transform: rotate(90deg); color: var(--primary); }
-.pac-expand-btn:hover { color: var(--primary); }
+/* Tabela de pacientes com rowspan */
+.pac-table tbody tr { border-bottom: none; }
 
-.pac-detail-row td { padding: 0 !important; }
-.pac-detail-inner {
-  padding: 10px 16px 12px 44px;
-  background: var(--primary-faint, rgba(61,107,26,.04));
-  border-bottom: 2px solid rgba(61,107,26,.12);
+/* Linha de separação entre pacientes */
+.pac-table tbody tr.pac-sep td {
+  padding: 0 !important; height: 6px;
+  background: var(--line, #e8e8e8);
+  border-bottom: none;
 }
-.pac-detail-grid {
-  display: flex; flex-wrap: wrap; gap: 6px 20px;
+@media (prefers-color-scheme: dark) {
+  .pac-table tbody tr.pac-sep td { background: rgba(255,255,255,.08); }
 }
-.pac-detail-item {
+
+/* Primeira linha do paciente (com dados principais) */
+.pac-table tbody tr.pac-first td {
+  border-top: 1.5px solid var(--line);
+  padding-top: 10px;
+  vertical-align: top;
+}
+/* Linhas de tipo adicionais (sem dados do paciente) */
+.pac-table tbody tr.pac-tipo td {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  vertical-align: middle;
+}
+/* Última linha do paciente */
+.pac-table tbody tr.pac-last td { padding-bottom: 10px; }
+
+/* Nome do paciente */
+.pac-nome {
+  font-weight: 700; font-size: .88rem;
+  vertical-align: top; padding-top: 10px !important;
+}
+
+/* Tipo de atendimento */
+.pac-tipo-nome {
+  font-size: .83rem; color: var(--text);
   display: flex; align-items: center; gap: 6px;
-  font-size: .81rem; color: var(--text);
 }
-.pac-detail-item .pac-tipo-nome {
-  color: var(--muted); font-weight: 500;
-}
-.pac-detail-item .pac-tipo-cnt {
-  background: var(--primary); color: #fff;
-  border-radius: 5px; padding: 1px 7px;
-  font-size: .73rem; font-weight: 700; min-width: 22px; text-align: center;
+.pac-tipo-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--primary); flex-shrink: 0; opacity: .6;
 }
 
-/* ── Badges inline (top 3 tipos) ── */
-.pac-badges { display: flex; flex-wrap: wrap; gap: 4px; }
-.pac-badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  background: rgba(61,107,26,.09); color: var(--primary);
-  border-radius: 6px; padding: 2px 7px;
-  font-size: .75rem; font-weight: 600; white-space: nowrap;
-  max-width: 200px; overflow: hidden;
-}
-.pac-badge span { font-weight: 700; }
-.pac-more {
-  font-size: .73rem; color: var(--muted); font-style: italic; align-self: center;
+/* Quantidade por tipo — destaque */
+.pac-qtde {
+  font-weight: 700; font-size: .9rem;
+  color: var(--primary); text-align: right;
 }
 
-/* ── Paginação ── */
+/* Linha sem tipos */
+.pac-no-tipo { font-size: .8rem; color: var(--muted); font-style: italic; }
+
+/* Paginação */
 .pac-pagination {
   display: flex; align-items: center; justify-content: center; gap: 16px;
   padding: 14px; border-top: 1px solid var(--line);
 }
 .pac-page-btn {
   padding: 6px 16px; border-radius: 8px; border: 1.5px solid var(--line);
-  background: none; cursor: pointer; font-size: .84rem; font-weight: 600;
-  color: var(--primary);
+  background: none; cursor: pointer; font-size: .84rem; font-weight: 600; color: var(--primary);
 }
 .pac-page-btn:disabled { opacity: .35; cursor: default; }
 #pac-page-info { font-size: .82rem; color: var(--muted); }
 </style>
 
 <script>
-const PAC_REPORTS    = {{ reports | tojson }};
 const PAC_PERIOD_FROM = {{ (period_from or '') | tojson }};
 const PAC_PERIOD_TO   = {{ (period_to   or '') | tojson }};
 const PAC_UNIT        = {{ (current_unit or '') | tojson }};
 
 let pacState = { page: 1, pages: 1 };
 
-// ── Unidades via bi_reports ──────────────────────────────────────────────
-(async () => {
-  const pf = PAC_PERIOD_FROM || PAC_REPORTS[0]?.period_key || '';
-  const pt = PAC_PERIOD_TO   || pf;
-  try {
-    const r = await fetch(`/bi/listagem/profissionais?period_from=${pf}&period_to=${pt}`);
-    // Sem endpoint de unidades dedicado; carrega via fetch ao BI
-    // Alternativa: lê unidades do bi_atendimentos (apenas as disponíveis)
-  } catch(_) {}
-  // Pré-seleciona unidade da URL
+// Pré-seleciona unidade da URL se houver
+if (PAC_UNIT) {
   const sel = document.getElementById('pac-unit');
-  if (PAC_UNIT) {
-    const o = new Option(PAC_UNIT, PAC_UNIT, true, true);
-    sel.appendChild(o);
+  if (sel && !sel.querySelector(`option[value="${PAC_UNIT}"]`)) {
+    sel.appendChild(new Option(PAC_UNIT, PAC_UNIT, true, true));
   }
-})();
+}
 
 function applyPacFilters() {
   const pf = document.getElementById('pac-period-from').value;
@@ -246,63 +231,56 @@ function pacUrlParams(page) {
   if (pt)   p.set('period_to',   pt);
   if (unit) p.set('unit', unit);
   if (srch) p.set('search', srch);
-  p.set('page', page); p.set('per_page', 50);
+  p.set('page', page); p.set('per_page', 30);
   return p.toString();
 }
 
-// Encurta nome do tipo de atendimento para exibição inline
-function shortTipo(nome) {
-  const map = {
-    'cbo desconhecido ou não informado pelo solicitante': 'CBO n/informado',
-    'cbo desconhecido':  'CBO n/informado',
-    'fisioterapeuta geral': 'Fisioterapeuta',
-    'médico clínico': 'Médico clínico',
-    'psicólogo clínico': 'Psicólogo',
-    'assistente social': 'Assist. Social',
-    'enfermeiro': 'Enfermeiro',
-    'nutricionista': 'Nutricionista',
-  };
-  const key = nome.toLowerCase();
-  return map[key] || (nome.length > 22 ? nome.substring(0, 20) + '…' : nome);
-}
+function buildRows(pac) {
+  const tipos  = pac.tipos || [];
+  const pct    = pac.agendamentos > 0 ? Math.round(pac.finalizados / pac.agendamentos * 100) : 0;
+  const pctClr = pct >= 70 ? 'var(--primary)' : pct >= 50 ? '#c47b00' : '#b83030';
+  const n      = Math.max(tipos.length, 1);
+  let rows = '';
 
-function renderBadges(tipos) {
-  if (!tipos || !tipos.length)
-    return '<span style="color:var(--muted);font-size:.8rem">—</span>';
-  const top = tipos.slice(0, 3);
-  const rest = tipos.length - 3;
-  let html = '<div class="pac-badges">';
-  top.forEach(t => {
-    html += `<span class="pac-badge">${shortTipo(t.nome)} <span>${t.qtde}</span></span>`;
+  tipos.forEach((t, i) => {
+    const isFirst = i === 0;
+    const isLast  = i === tipos.length - 1;
+    const cls = [
+      isFirst ? 'pac-first' : 'pac-tipo',
+      isLast  ? 'pac-last'  : ''
+    ].join(' ').trim();
+
+    if (isFirst) {
+      // Linha com dados do paciente (rowspan)
+      rows += `<tr class="${cls}">
+        <td class="pac-nome" rowspan="${n}">${pac.nome}</td>
+        <td class="right" rowspan="${n}">${pac.agendamentos}</td>
+        <td class="right" rowspan="${n}" style="font-weight:700;color:var(--primary)">${pac.finalizados}</td>
+        <td class="right" rowspan="${n}" style="font-weight:600;color:${pctClr}">${pct}%</td>
+        <td><div class="pac-tipo-nome"><span class="pac-tipo-dot"></span>${t.nome}</div></td>
+        <td class="pac-qtde">${t.qtde}</td>
+      </tr>`;
+    } else {
+      rows += `<tr class="${cls}">
+        <td><div class="pac-tipo-nome"><span class="pac-tipo-dot"></span>${t.nome}</div></td>
+        <td class="pac-qtde">${t.qtde}</td>
+      </tr>`;
+    }
   });
-  if (rest > 0)
-    html += `<span class="pac-more">+${rest} tipo${rest > 1 ? 's' : ''}</span>`;
-  html += '</div>';
-  return html;
-}
 
-function renderDetail(tipos) {
-  return '<div class="pac-detail-grid">' +
-    tipos.map(t =>
-      `<div class="pac-detail-item">
-        <span class="pac-tipo-cnt">${t.qtde}</span>
-        <span class="pac-tipo-nome">${t.nome}</span>
-      </div>`
-    ).join('') +
-    '</div>';
-}
+  if (!tipos.length) {
+    rows += `<tr class="pac-first pac-last">
+      <td class="pac-nome">${pac.nome}</td>
+      <td class="right">${pac.agendamentos}</td>
+      <td class="right" style="font-weight:700;color:var(--primary)">${pac.finalizados}</td>
+      <td class="right" style="font-weight:600;color:${pctClr}">${pct}%</td>
+      <td colspan="2" class="pac-no-tipo">Sem tipo registrado</td>
+    </tr>`;
+  }
 
-function toggleDetail(btn, tipos, rowIdx) {
-  const existing = document.getElementById(`pac-detail-${rowIdx}`);
-  if (existing) { existing.remove(); btn.classList.remove('open'); return; }
-  btn.classList.add('open');
-  const dr = document.createElement('tr');
-  dr.id = `pac-detail-${rowIdx}`;
-  dr.className = 'pac-detail-row';
-  dr.innerHTML = `<td colspan="6"><div class="pac-detail-inner">${renderDetail(tipos)}</div></td>`;
-  const mainRows = document.querySelectorAll('#pac-tbody tr.pac-main');
-  const target = mainRows[rowIdx];
-  if (target) target.insertAdjacentElement('afterend', dr);
+  // Separador visual entre pacientes
+  rows += `<tr class="pac-sep"><td colspan="6"></td></tr>`;
+  return rows;
 }
 
 async function pacBuscar(page) {
@@ -320,7 +298,7 @@ async function pacBuscar(page) {
     }
     pacState.pages = data.pages;
 
-    // Cards (totais reais vindos da API)
+    // Cards
     document.getElementById('pac-cnt').textContent   = data.total.toLocaleString('pt-BR');
     document.getElementById('pac-agend').textContent = (data.total_agend || 0).toLocaleString('pt-BR');
     document.getElementById('pac-fin').textContent   = (data.total_fin  || 0).toLocaleString('pt-BR');
@@ -330,25 +308,7 @@ async function pacBuscar(page) {
     if (!data.rows.length) {
       tbody.innerHTML = `<tr><td colspan="6" class="pac-empty">Nenhum paciente encontrado.</td></tr>`;
     } else {
-      tbody.innerHTML = data.rows.map((r, i) => {
-        const pct     = r.agendamentos > 0 ? Math.round(r.finalizados / r.agendamentos * 100) : 0;
-        const pctColor = pct >= 70 ? 'var(--primary)' : pct >= 50 ? '#c47b00' : '#b83030';
-        const hasTipos = r.tipos && r.tipos.length > 0;
-        const tiposJson = hasTipos ? JSON.stringify(r.tipos) : '[]';
-        return `<tr class="pac-main" data-idx="${i}">
-          <td style="text-align:center;width:28px">
-            ${hasTipos
-              ? `<button class="pac-expand-btn" title="Detalhar tipos"
-                   onclick='toggleDetail(this, ${tiposJson.replace(/'/g,"&#39;")}, ${i})'>›</button>`
-              : ''}
-          </td>
-          <td style="font-weight:600;white-space:nowrap">${r.nome}</td>
-          <td class="right">${r.agendamentos}</td>
-          <td class="right" style="font-weight:700;color:var(--primary)">${r.finalizados}</td>
-          <td class="right" style="font-weight:600;color:${pctColor}">${pct}%</td>
-          <td>${renderBadges(r.tipos)}</td>
-        </tr>`;
-      }).join('');
+      tbody.innerHTML = data.rows.map(buildRows).join('');
     }
 
     // Paginação
@@ -364,13 +324,50 @@ async function pacBuscar(page) {
   }
 }
 
-function pacExportar(e) {
+async function pacExportar(e) {
   e.preventDefault();
-  // TODO: implementar exportação Excel
-  alert('Exportação em breve.');
+  const params = pacUrlParams(1);
+  // Busca todas as páginas e monta CSV
+  const allRows = [];
+  let pg = 1, totalPgs = 1;
+  do {
+    const p = new URLSearchParams(params);
+    p.set('page', pg); p.set('per_page', 200);
+    const r = await fetch('/bi/pacientes/data?' + p.toString());
+    const d = await r.json();
+    if (!d.ok) break;
+    totalPgs = d.pages;
+    allRows.push(...d.rows);
+    pg++;
+  } while (pg <= totalPgs);
+
+  // Monta CSV
+  const lines = ['Paciente;Agendamentos;Finalizados;% Comparecimento;Tipo de Atendimento;Quantidade'];
+  for (const pac of allRows) {
+    const pct = pac.agendamentos > 0 ? Math.round(pac.finalizados / pac.agendamentos * 100) : 0;
+    if (pac.tipos && pac.tipos.length) {
+      pac.tipos.forEach((t, i) => {
+        const nome  = i === 0 ? pac.nome : '';
+        const agend = i === 0 ? pac.agendamentos : '';
+        const fin   = i === 0 ? pac.finalizados  : '';
+        const p2    = i === 0 ? pct + '%'        : '';
+        lines.push(`${nome};${agend};${fin};${p2};${t.nome};${t.qtde}`);
+      });
+    } else {
+      lines.push(`${pac.nome};${pac.agendamentos};${pac.finalizados};${pct}%;;`);
+    }
+    lines.push(';;;;; '); // linha em branco entre pacientes
+  }
+
+  const bom  = '﻿';
+  const blob = new Blob([bom + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'analitico_pacientes.csv';
+  a.click(); URL.revokeObjectURL(url);
 }
 
-// Busca automática se período já está definido
+// Busca automática se período definido
 if (PAC_PERIOD_FROM || PAC_PERIOD_TO) pacBuscar(1);
 </script>
 {% endblock %}
