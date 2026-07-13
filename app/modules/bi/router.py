@@ -1,10 +1,11 @@
 from pathlib import Path
-from fastapi import APIRouter, Depends, Form, Request, UploadFile, File
+import asyncio
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from app.auth.dependencies import require_auth, check_module_access
-from app.modules.bi.parser import parse_xls, load_saved, clear_saved, list_reports
+from app.modules.bi.parser import parse_xls, save_parsed_result, load_saved, clear_saved, list_reports
 from app.modules.bi.config import get_bi_config, save_bi_config, recalculate_all_reports
 
 TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
@@ -605,10 +606,16 @@ async def bi_pacientes_data(
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=500)
 
 
+async def _bg_save(data: dict) -> None:
+    """Persiste no Supabase em background (após resposta enviada ao cliente)."""
+    await asyncio.to_thread(save_parsed_result, data)
+
+
 @router.post("/bi/upload")
 async def bi_upload(
-    request: Request,
-    file: UploadFile = File(...),
+    request:          Request,
+    background_tasks: BackgroundTasks,
+    file:             UploadFile = File(...),
     user=Depends(require_auth),
 ):
     if isinstance(user, RedirectResponse):
@@ -626,23 +633,26 @@ async def bi_upload(
         return JSONResponse({"ok": False, "erro": "Arquivo muito grande (máx. 50 MB)."}, status_code=400)
 
     try:
-        data = parse_xls(content)
+        # Roda o parse em thread (não bloqueia o event loop); save=False = sem chamar Supabase ainda
+        data = await asyncio.to_thread(parse_xls, content, False)
     except ValueError as e:
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=422)
     except Exception as e:
         print("BI UPLOAD ERROR:", repr(e))
         return JSONResponse({"ok": False, "erro": "Erro ao processar o arquivo. Verifique se é o export correto."}, status_code=500)
 
+    # Agenda o salvamento no Supabase para DEPOIS da resposta ser enviada
+    background_tasks.add_task(_bg_save, data)
+
     k = data["kpis"]
-    save_error = data.get("_save_error")
     return JSONResponse({
-        "ok":         True,
-        "period_key": data["period_key"],
-        "periodo":    data["periodo"]["label"],
-        "linhas":     data["total_registros"],
+        "ok":          True,
+        "period_key":  data["period_key"],
+        "periodo":     data["periodo"]["label"],
+        "linhas":      data["total_registros"],
         "finalizados": k["total_atendimentos"],
-        "producao":   k["total_producao"],
-        "save_error": save_error,  # None = salvo, string = erro do Supabase
+        "producao":    k["total_producao"],
+        "save_error":  None,
     })
 
 

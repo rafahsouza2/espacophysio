@@ -63,44 +63,52 @@ META_DIARIA = META / 22
 DATA_PATH = Path(__file__).parent.parent.parent / "data" / "bi_data.json"
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
+def _build_atend_rows(df: pd.DataFrame, period_key: str,
+                       col_paciente, col_convenio, col_unidade, col_protocolo,
+                       col_cod=None) -> list[dict]:
+    """Constrói lista de dicts para bi_atendimentos sem tocar no banco de dados."""
+    rows = []
+    for _, r in df.iterrows():
+        dt   = r["_dt"]
+        nasc = r.get("_nasc") if "_nasc" in df.columns else None
+        rows.append({
+            "period_key":     period_key,
+            "data_atend":     dt.strftime("%Y-%m-%d") if pd.notna(dt) else None,
+            "paciente":       str(r[col_paciente]).strip() if col_paciente and pd.notna(r.get(col_paciente)) else None,
+            "profissional":   str(r["_prof"]) if "_prof" in r else None,
+            "especialidade":  str(r["_esp"])  if "_esp"  in r else None,
+            "convenio":       str(r[col_convenio]).strip() if col_convenio and pd.notna(r.get(col_convenio)) else None,
+            "unidade":        str(r[col_unidade]).strip()  if col_unidade  and pd.notna(r.get(col_unidade))  else None,
+            "valor":          float(r["_val"]) if "_val" in r else 0.0,
+            "faturado":       bool(r["_faturado"]) if "_faturado" in r else False,
+            "protocolo_lote": str(r[col_protocolo]).strip() if col_protocolo and pd.notna(r.get(col_protocolo)) else None,
+            "status":           str(r["_status"]) if "_status" in r else None,
+            "tipo_atendimento": str(r[col_cod]).strip() if col_cod and pd.notna(r.get(col_cod)) else None,
+            "data_nascimento": nasc.strftime("%Y-%m-%d") if nasc is not None and pd.notna(nasc) else None,
+            "sexo":           str(r.get("_sexo", "")).strip() or None,
+            "bairro":         str(r.get("_bairro", "")).strip() or None,
+            "cidade":         str(r.get("_cidade", "")).strip() or None,
+        })
+    return rows
+
+
 def _save_atendimentos(df: pd.DataFrame, period_key: str,
                         col_paciente, col_convenio, col_unidade, col_protocolo,
                         col_cod=None) -> str | None:
     """Salva linhas individuais na tabela bi_atendimentos (delete+insert por período)."""
+    rows = _build_atend_rows(df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod)
+    _insert_atend_rows(rows, period_key)
+
+
+def _insert_atend_rows(rows: list[dict], period_key: str) -> None:
+    """DELETE período existente e re-insere as linhas em lotes de 500."""
     try:
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
         sb.table("bi_atendimentos").delete().eq("period_key", period_key).execute()
-
-        rows = []
-        for _, r in df.iterrows():
-            dt   = r["_dt"]
-            nasc = r.get("_nasc") if "_nasc" in df.columns else None
-            rows.append({
-                "period_key":     period_key,
-                "data_atend":     dt.strftime("%Y-%m-%d") if pd.notna(dt) else None,
-                "paciente":       str(r[col_paciente]).strip() if col_paciente and pd.notna(r.get(col_paciente)) else None,
-                "profissional":   str(r["_prof"]) if "_prof" in r else None,
-                "especialidade":  str(r["_esp"])  if "_esp"  in r else None,
-                "convenio":       str(r[col_convenio]).strip() if col_convenio and pd.notna(r.get(col_convenio)) else None,
-                "unidade":        str(r[col_unidade]).strip()  if col_unidade  and pd.notna(r.get(col_unidade))  else None,
-                "valor":          float(r["_val"]) if "_val" in r else 0.0,
-                "faturado":       bool(r["_faturado"]) if "_faturado" in r else False,
-                "protocolo_lote": str(r[col_protocolo]).strip() if col_protocolo and pd.notna(r.get(col_protocolo)) else None,
-                "status":           str(r["_status"]) if "_status" in r else None,
-                "tipo_atendimento": str(r[col_cod]).strip() if col_cod and pd.notna(r.get(col_cod)) else None,
-                "data_nascimento": nasc.strftime("%Y-%m-%d") if nasc is not None and pd.notna(nasc) else None,
-                "sexo":           str(r.get("_sexo", "")).strip() or None,
-                "bairro":         str(r.get("_bairro", "")).strip() or None,
-                "cidade":         str(r.get("_cidade", "")).strip() or None,
-            })
-
-        # Insere em lotes de 500
         for i in range(0, len(rows), 500):
             sb.table("bi_atendimentos").insert(rows[i:i+500]).execute()
-
         print(f"[BI] bi_atendimentos: {len(rows)} linhas salvas para {period_key}")
-        return None
     except Exception as e:
         print("BI ATENDIMENTOS SAVE ERROR:", repr(e))
         return repr(e)
@@ -211,7 +219,7 @@ MESES_PT   = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov",
 
 
 # ── Parser principal ───────────────────────────────────────────────────────────
-def parse_xls(content: bytes) -> dict:
+def parse_xls(content: bytes, save: bool = True) -> dict:
     """Lê XLS (HTML disfarçado) ou XLSX real e retorna dict com KPIs globais e por unidade."""
     from app.modules.bi.config import get_bi_config
     _cfg        = get_bi_config()
@@ -707,16 +715,42 @@ def parse_xls(content: bytes) -> dict:
     }
 
     # 9. Persistir
+    if save:
+        save_error = _save_supabase(result)
+        _save_atendimentos(df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod)
+        result["_save_error"] = save_error
+        try:
+            DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+            DATA_PATH.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as e:
+            print("BI DISK SAVE ERROR:", repr(e))
+    else:
+        # Guarda linhas pré-computadas para salvar em background (sem chamar o banco agora)
+        result["_pending_atend_rows"] = _build_atend_rows(
+            df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod
+        )
+        result["_pending_period_key"] = period_key
+        result["_save_error"] = None
+
+    return result
+
+
+def save_parsed_result(result: dict) -> None:
+    """Persiste no Supabase o resultado de parse_xls(save=False). Chamado em background."""
+    rows       = result.pop("_pending_atend_rows", [])
+    period_key = result.pop("_pending_period_key", None)
+
     save_error = _save_supabase(result)
-    _save_atendimentos(df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod)
     result["_save_error"] = save_error
+
+    if period_key and rows:
+        _insert_atend_rows(rows, period_key)
+
     try:
         DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
         DATA_PATH.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         print("BI DISK SAVE ERROR:", repr(e))
-
-    return result
 
 
 # ── Carregar / limpar ─────────────────────────────────────────────────────────
