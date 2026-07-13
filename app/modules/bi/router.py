@@ -95,8 +95,10 @@ def _backfill_bi(d: dict) -> dict:
 async def bi_dashboard(
     request:     Request,
     period:      str = None,   # compat: mês único antigo
-    period_from: str = None,   # início do intervalo (AAAA-MM)
-    period_to:   str = None,   # fim do intervalo   (AAAA-MM)
+    period_from: str = None,   # compat: AAAA-MM
+    period_to:   str = None,   # compat: AAAA-MM
+    date_from:   str = None,   # novo: AAAA-MM-DD
+    date_to:     str = None,   # novo: AAAA-MM-DD
     unit:        str = None,
     user=Depends(require_auth),
 ):
@@ -106,7 +108,11 @@ async def bi_dashboard(
     if redir:
         return redir
 
-    # Normaliza: compat com ?period= antigo
+    # Prioridade: date_from/date_to > period_from/period_to > period
+    if date_from and not period_from:
+        period_from = date_from[:7]
+    if date_to and not period_to:
+        period_to = date_to[:7]
     if period and not period_from and not period_to:
         period_from = period_to = period
 
@@ -167,6 +173,20 @@ async def bi_dashboard(
     # Deriva current_period para compat com listagem/exports que ainda usam period=
     current_period = period_from if period_from == period_to else None
 
+    # Computa date_from/date_to para inputs de data no template
+    import calendar as _cal
+    if not date_from and period_from:
+        date_from = period_from + "-01"
+    if not date_to and period_to:
+        y, m = int(period_to[:4]), int(period_to[5:7])
+        date_to = f"{period_to}-{_cal.monthrange(y, m)[1]:02d}"
+    # Fallback: usa o período mais recente disponível
+    if not date_from and not date_to and reports:
+        latest = reports[0]["period_key"]
+        date_from = latest + "-01"
+        y, m = int(latest[:4]), int(latest[5:7])
+        date_to = f"{latest}-{_cal.monthrange(y, m)[1]:02d}"
+
     return templates.TemplateResponse("bi.html", {
         "request":         request,
         "user":            user,
@@ -176,6 +196,8 @@ async def bi_dashboard(
         "current_period":  current_period,
         "period_from":     period_from or "",
         "period_to":       period_to   or "",
+        "date_from":       date_from   or "",
+        "date_to":         date_to     or "",
         "current_unit":    current_unit,
         "lista_unidades":  lista_unidades,
         "bi_cfg":          bi_cfg,
@@ -186,8 +208,10 @@ async def bi_dashboard(
 async def bi_listagem(
     request:      Request,
     period:       str  = None,   # compat: mês único
-    period_from:  str  = None,   # início do intervalo
-    period_to:    str  = None,   # fim do intervalo
+    period_from:  str  = None,   # compat: AAAA-MM
+    period_to:    str  = None,   # compat: AAAA-MM
+    date_from:    str  = None,   # novo: AAAA-MM-DD
+    date_to:      str  = None,   # novo: AAAA-MM-DD
     convenio:     str  = None,
     unidade:      str  = None,
     profissional: str  = None,
@@ -211,8 +235,10 @@ async def bi_listagem(
         sb  = get_supabase_admin()
 
         def _apply_filters(q, include_faturado: bool = True):
-            if period_from: q = q.gte("period_key", period_from)
-            if period_to:   q = q.lte("period_key", period_to)
+            if date_from:     q = q.gte("data_atend", date_from)
+            elif period_from: q = q.gte("period_key", period_from)
+            if date_to:       q = q.lte("data_atend", date_to)
+            elif period_to:   q = q.lte("period_key", period_to)
             if convenio:     q = q.ilike("convenio", f"%{convenio}%")
             if unidade:      q = q.ilike("unidade", f"%{unidade}%")
             if profissional: q = q.ilike("profissional", f"%{profissional}%")
@@ -231,13 +257,19 @@ async def bi_listagem(
         rows  = res.data or []
         total = res.count or 0
 
-        # Totais sem filtro de faturamento — refletem produção total do período (igual ao B.I.)
-        qtot = _apply_filters(
-            sb.table("bi_atendimentos").select("valor,faturado", count="exact"),
-            include_faturado=False,
-        ).eq("status", "realizado")
-        tres  = qtot.limit(20000).execute()
-        trows = tres.data or []
+        # Totais sem filtro de faturamento — lote a lote (Supabase limita 1000 linhas/request)
+        trows: list[dict] = []
+        tot_offset = 0
+        while True:
+            qbatch = _apply_filters(
+                sb.table("bi_atendimentos").select("valor,faturado"),
+                include_faturado=False,
+            ).eq("status", "realizado").range(tot_offset, tot_offset + 999)
+            batch = qbatch.execute().data or []
+            trows.extend(batch)
+            if len(batch) < 1000:
+                break
+            tot_offset += 1000
         soma_total    = round(sum(r["valor"] or 0 for r in trows), 2)
         soma_faturado = round(sum(r["valor"] or 0 for r in trows if r["faturado"]), 2)
 
@@ -256,6 +288,7 @@ async def bi_listagem(
 @router.get("/bi/listagem/convenios")
 async def bi_listagem_convenios(request: Request, period: str = None,
                                  period_from: str = None, period_to: str = None,
+                                 date_from: str = None, date_to: str = None,
                                  user=Depends(require_auth)):
     if isinstance(user, RedirectResponse):
         return user
@@ -265,8 +298,10 @@ async def bi_listagem_convenios(request: Request, period: str = None,
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
         q  = sb.table("bi_atendimentos").select("convenio")
-        if period_from: q = q.gte("period_key", period_from)
-        if period_to:   q = q.lte("period_key", period_to)
+        if date_from:     q = q.gte("data_atend", date_from)
+        elif period_from: q = q.gte("period_key", period_from)
+        if date_to:       q = q.lte("data_atend", date_to)
+        elif period_to:   q = q.lte("period_key", period_to)
         res = q.limit(5000).execute()
         items = sorted({r["convenio"] for r in (res.data or []) if r.get("convenio")})
         return JSONResponse({"ok": True, "items": items})
@@ -277,6 +312,7 @@ async def bi_listagem_convenios(request: Request, period: str = None,
 @router.get("/bi/listagem/profissionais")
 async def bi_listagem_profissionais(request: Request, period: str = None,
                                      period_from: str = None, period_to: str = None,
+                                     date_from: str = None, date_to: str = None,
                                      user=Depends(require_auth)):
     if isinstance(user, RedirectResponse):
         return user
@@ -286,8 +322,10 @@ async def bi_listagem_profissionais(request: Request, period: str = None,
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
         q  = sb.table("bi_atendimentos").select("profissional")
-        if period_from: q = q.gte("period_key", period_from)
-        if period_to:   q = q.lte("period_key", period_to)
+        if date_from:     q = q.gte("data_atend", date_from)
+        elif period_from: q = q.gte("period_key", period_from)
+        if date_to:       q = q.lte("data_atend", date_to)
+        elif period_to:   q = q.lte("period_key", period_to)
         res = q.limit(5000).execute()
         items = sorted({r["profissional"] for r in (res.data or []) if r.get("profissional")})
         return JSONResponse({"ok": True, "items": items})
@@ -301,6 +339,8 @@ async def bi_listagem_export(
     period:       str = None,   # compat
     period_from:  str = None,
     period_to:    str = None,
+    date_from:    str = None,   # novo: AAAA-MM-DD
+    date_to:      str = None,   # novo: AAAA-MM-DD
     convenio:     str = None,
     unidade:      str = None,
     profissional: str = None,
@@ -328,8 +368,10 @@ async def bi_listagem_export(
         qb = sb.table("bi_atendimentos").select(
             "data_atend,paciente,profissional,especialidade,convenio,unidade,valor,faturado,protocolo_lote,status"
         )
-        if period_from:  qb = qb.gte("period_key", period_from)
-        if period_to:    qb = qb.lte("period_key", period_to)
+        if date_from:     qb = qb.gte("data_atend", date_from)
+        elif period_from: qb = qb.gte("period_key", period_from)
+        if date_to:       qb = qb.lte("data_atend", date_to)
+        elif period_to:   qb = qb.lte("period_key", period_to)
         if convenio:     qb = qb.ilike("convenio", f"%{convenio}%")
         if unidade:      qb = qb.ilike("unidade",  f"%{unidade}%")
         if profissional: qb = qb.ilike("profissional", f"%{profissional}%")

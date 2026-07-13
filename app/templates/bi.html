@@ -54,23 +54,11 @@
   <div class="bi-period-actions">
     {% if reports %}
     <div class="period-range-wrap">
-      <select class="filter-select" id="period-from" onchange="applyFilters()">
-        {% for r in reports %}
-        <option value="{{ r.period_key }}"
-          {% if period_from == r.period_key or (not period_from and loop.first) %}selected{% endif %}>
-          {{ r.periodo_label }}
-        </option>
-        {% endfor %}
-      </select>
+      <input type="date" class="filter-select" id="date-from"
+             value="{{ date_from }}" onchange="applyFilters()">
       <span class="period-range-sep">até</span>
-      <select class="filter-select" id="period-to" onchange="applyFilters()">
-        {% for r in reports %}
-        <option value="{{ r.period_key }}"
-          {% if period_to == r.period_key or (not period_to and loop.first) %}selected{% endif %}>
-          {{ r.periodo_label }}
-        </option>
-        {% endfor %}
-      </select>
+      <input type="date" class="filter-select" id="date-to"
+             value="{{ date_to }}" onchange="applyFilters()">
     </div>
     {% endif %}
     {% if lista_unidades %}
@@ -836,7 +824,7 @@ const PERIODO   = BI.periodo?.label || '';
             <td class="right {% if u.taxa_final >= 70 %}ok{% elif u.taxa_final >= 50 %}mid{% else %}warn{% endif %}">{{ "%.1f"|format(u.taxa_final)|replace(".",",") }}%</td>
             <td class="right mid">{{ "%.1f"|format(u.pct_prod)|replace(".",",") }}%</td>
             <td class="center">
-              <a class="report-btn" href="/bi?period_from={{ period_from or '' }}&period_to={{ period_to or '' }}&unit={{ u.nome | urlencode }}">Ver</a>
+              <a class="report-btn" href="/bi?date_from={{ date_from or '' }}&date_to={{ date_to or '' }}&unit={{ u.nome | urlencode }}">Ver</a>
             </td>
           </tr>
           {% endfor %}
@@ -860,7 +848,7 @@ const PERIODO   = BI.periodo?.label || '';
   {% if current_unit %}
   <div class="unit-filter-notice glass">
     Filtrando: <strong>{{ current_unit }}</strong>
-    <a href="/bi{% if period_from or period_to %}?period_from={{ period_from }}&period_to={{ period_to }}{% endif %}" class="unit-clear-btn">✕ Remover filtro</a>
+    <a href="/bi{% if date_from or date_to %}?date_from={{ date_from }}&date_to={{ date_to }}{% endif %}" class="unit-clear-btn">✕ Remover filtro</a>
   </div>
   {% endif %}
 
@@ -2141,9 +2129,9 @@ function initAtendentes() {
 /* ─── Tab: Listagem ─── */
 const lstState = {
   page: 1, pages: 1,
-  period:      '{{ current_period or "" }}',
-  period_from: '{{ period_from or "" }}',
-  period_to:   '{{ period_to   or "" }}',
+  period:    '{{ current_period or "" }}',
+  date_from: '{{ date_from or "" }}',
+  date_to:   '{{ date_to   or "" }}',
 };
 
 function fmtBRVal(v) {
@@ -2162,9 +2150,8 @@ function lstFiltros() {
 function lstUrlParams(page, extra = {}) {
   const f = lstFiltros();
   const p = new URLSearchParams();
-  // Suporte a range de período ou mês único
-  if (lstState.period_from) p.set('period_from', lstState.period_from);
-  if (lstState.period_to)   p.set('period_to',   lstState.period_to);
+  if (lstState.date_from) p.set('date_from', lstState.date_from);
+  if (lstState.date_to)   p.set('date_to',   lstState.date_to);
   else if (lstState.period) p.set('period', lstState.period);
   if (f.convenio)     p.set('convenio',     f.convenio);
   if (f.unidade)      p.set('unidade',      f.unidade);
@@ -2243,7 +2230,11 @@ function lstExportar(e) {
 }
 
 async function initListagem() {
-  const qs = lstState.period ? `?period=${lstState.period}` : '';
+  const lstP = new URLSearchParams();
+  if (lstState.date_from) lstP.set('date_from', lstState.date_from);
+  if (lstState.date_to)   lstP.set('date_to',   lstState.date_to);
+  else if (lstState.period) lstP.set('period', lstState.period);
+  const qs = lstP.toString() ? '?' + lstP.toString() : '';
 
   // Popula convênios
   const conv = document.getElementById('lst-convenio');
@@ -2879,27 +2870,35 @@ async function doDeleteReport(periodKey) {
 
 /* ─── Filtro de período + unidade (preserva aba ativa) ─── */
 function applyFilters() {
-  const pFrom = document.getElementById('period-from')?.value || '';
-  const pTo   = document.getElementById('period-to')?.value   || '';
-  const unit  = document.getElementById('unit-select')?.value || '';
-  const tab   = document.querySelector('#bi-sidebar-tabs .bi-sidebar-tab.active')?.dataset.target || '';
-  // Atualiza link de analítico de pacientes com período atual
+  const df   = document.getElementById('date-from')?.value || '';
+  const dt   = document.getElementById('date-to')?.value   || '';
+  const unit = document.getElementById('unit-select')?.value || '';
+  const tab  = document.querySelector('#bi-sidebar-tabs .bi-sidebar-tab.active')?.dataset.target || '';
+
+  // Valida: máximo 3 meses
+  if (df && dt) {
+    const d1 = new Date(df), d2 = new Date(dt);
+    if (d2 < d1) { alert('A data inicial não pode ser maior que a data final.'); return; }
+    const months = (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth());
+    if (months > 3) { alert('O período máximo de consulta é 3 meses.'); return; }
+  }
+
+  // Atualiza link de analítico de pacientes
   const pacLink = document.getElementById('pac-link');
   if (pacLink) {
-    let pacUrl = '/bi/pacientes?';
-    if (pFrom) pacUrl += `period_from=${encodeURIComponent(pFrom)}&`;
-    if (pTo)   pacUrl += `period_to=${encodeURIComponent(pTo)}&`;
-    if (unit)  pacUrl += `unit=${encodeURIComponent(unit)}`;
-    pacLink.href = pacUrl;
+    const pacP = new URLSearchParams();
+    if (df)   pacP.set('date_from', df);
+    if (dt)   pacP.set('date_to',   dt);
+    if (unit) pacP.set('unit', unit);
+    pacLink.href = '/bi/pacientes?' + pacP.toString();
   }
-  let url = '/bi';
-  const params = [];
-  if (pFrom) params.push('period_from=' + encodeURIComponent(pFrom));
-  if (pTo)   params.push('period_to='   + encodeURIComponent(pTo));
-  if (unit)  params.push('unit='        + encodeURIComponent(unit));
-  if (tab && tab !== 'tab-dashboard') params.push('tab=' + encodeURIComponent(tab));
-  if (params.length) url += '?' + params.join('&');
-  location.href = url;
+
+  const params = new URLSearchParams();
+  if (df)   params.set('date_from', df);
+  if (dt)   params.set('date_to',   dt);
+  if (unit) params.set('unit', unit);
+  if (tab && tab !== 'tab-dashboard') params.set('tab', tab);
+  location.href = '/bi' + (params.toString() ? '?' + params.toString() : '');
 }
 
 /* ─── Chart unidades ─── */

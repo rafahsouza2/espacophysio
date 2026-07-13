@@ -51,11 +51,13 @@ async def usuarios_lista(request: Request, user=Depends(require_auth)):
     })
 
 
+DOMINIO_INTERNO = "@interno.espacophysio"
+
+
 @router.post("/usuarios/criar")
 async def usuarios_criar(
     request: Request,
-    full_name:          str = Form(...),
-    email:              str = Form(...),
+    username:           str = Form(...),
     password:           str = Form(...),
     role:               str = Form(...),
     modulos_permitidos: str = Form(""),
@@ -69,7 +71,16 @@ async def usuarios_criar(
     if role not in ROLE_LABELS:
         return JSONResponse({"ok": False, "erro": "Papel inválido."}, status_code=422)
 
+    # Valida nome de usuário: apenas letras, números, ponto, hífen e underscore
+    import re
+    username = username.strip()
+    if not username or not re.match(r'^[\w.\-]+$', username):
+        return JSONResponse({"ok": False, "erro": "Nome de usuário inválido. Use letras, números, ponto ou hífen."}, status_code=422)
+
     sb = get_supabase_admin()
+
+    # Gera e-mail interno — o usuário nunca vê isso
+    email_interno = username.lower() + DOMINIO_INTERNO
 
     mods = modulos_permitidos.strip() or None
     if role in ("admin", "coordenacao"):
@@ -77,24 +88,24 @@ async def usuarios_criar(
 
     try:
         auth_resp = sb.auth.admin.create_user({
-            "email":          email,
+            "email":          email_interno,
             "password":       password,
             "email_confirm":  True,
-            "user_metadata":  {"full_name": full_name, "modulos_permitidos": mods},
+            "user_metadata":  {"full_name": username, "modulos_permitidos": mods},
         })
         new_id = auth_resp.user.id
     except Exception as e:
         msg = str(e)
         if "already registered" in msg or "already been registered" in msg:
-            msg = "Este e-mail já está cadastrado."
+            msg = f"O nome de usuário '{username}' já está em uso."
         return JSONResponse({"ok": False, "erro": msg}, status_code=400)
 
     profile_data = {
-        "id":       new_id,
-        "full_name": full_name,
-        "email":    email,
-        "role":     role,
-        "active":   True,
+        "id":        new_id,
+        "full_name": username,
+        "email":     email_interno,
+        "role":      role,
+        "active":    True,
     }
     if mods is not None:
         profile_data["modulos_permitidos"] = mods

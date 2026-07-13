@@ -70,7 +70,7 @@
         </div>
 
         <h2>Entrar na intranet.</h2>
-        <p>Use seu e-mail e senha cadastrados pelo administrador.</p>
+        <p>Use seu usuário (ou e-mail) e senha cadastrados pelo administrador.</p>
 
         {% if error %}
         <div class="alert-error">{{ error }}</div>
@@ -78,9 +78,9 @@
 
         <form class="form-grid" method="POST" action="/login">
           <div>
-            <label for="email">E-mail</label>
+            <label for="email">Usuário ou E-mail</label>
             <div class="input-shell">
-              <input id="email" name="email" type="email" placeholder="seu@email.com.br" required autocomplete="email" />
+              <input id="email" name="email" type="text" placeholder="nome.usuario ou seu@email.com.br" required autocomplete="username" />
             </div>
           </div>
 

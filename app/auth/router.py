@@ -19,6 +19,9 @@ async def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
 
+DOMINIO_INTERNO = "@interno.espacophysio"
+
+
 @router.post("/login")
 async def login(
     request: Request,
@@ -27,7 +30,11 @@ async def login(
 ):
     try:
         supabase = get_supabase()
-        response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        # Aceita nome de usuário (sem @) ou e-mail real
+        login_email = email.strip()
+        if "@" not in login_email:
+            login_email = login_email.lower() + DOMINIO_INTERNO
+        response = supabase.auth.sign_in_with_password({"email": login_email, "password": password})
 
         if not response.session:
             return templates.TemplateResponse(
@@ -63,9 +70,9 @@ async def login(
         traceback.print_exc()
         error_msg = str(e)
         if "Invalid login" in error_msg or "invalid_credentials" in error_msg:
-            error_msg = "E-mail ou senha inválidos."
+            error_msg = "Usuário ou senha inválidos."
         elif "Email not confirmed" in error_msg:
-            error_msg = "Por favor, confirme seu e-mail antes de acessar."
+            error_msg = "Por favor, confirme seu acesso com o administrador."
         else:
             error_msg = f"Erro: {str(e)}"
 

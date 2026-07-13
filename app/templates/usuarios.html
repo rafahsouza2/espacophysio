@@ -18,8 +18,8 @@
     <table class="usr-table">
       <thead>
         <tr>
-          <th>Nome</th>
-          <th>E-mail</th>
+          <th>Usuário / Nome</th>
+          <th>Acesso</th>
           <th>Papel</th>
           <th>Módulos</th>
           <th>Status</th>
@@ -36,7 +36,13 @@
               <span style="font-weight:500">{{ u.full_name }}</span>
             </div>
           </td>
-          <td style="color:var(--muted);font-size:0.85rem">{{ u.email or '—' }}</td>
+          <td style="color:var(--muted);font-size:0.85rem">
+            {% if u.email and u.email.endswith('@interno.espacophysio') %}
+              <span class="usr-tag-interno">interno</span>
+            {% else %}
+              {{ u.email or '—' }}
+            {% endif %}
+          </td>
           <td>
             <span class="usr-role-badge usr-role-{{ u.role }}">
               {{ role_labels.get(u.role, u.role) }}
@@ -102,15 +108,12 @@
     <form id="form-novo" onsubmit="submitNovo(event)">
       <div class="usr-form-grid">
         <div class="usr-field usr-field-full">
-          <label class="usr-label">Nome completo</label>
-          <input class="usr-input" name="full_name" required placeholder="Ex: Maria Silva">
+          <label class="usr-label">Nome de usuário <span style="font-weight:400;color:var(--muted)">(usado para entrar no sistema)</span></label>
+          <input class="usr-input" name="username" required placeholder="Ex: maria.silva" autocomplete="off"
+                 pattern="[\w.\-]+" title="Apenas letras, números, ponto ou hífen">
         </div>
         <div class="usr-field">
-          <label class="usr-label">E-mail</label>
-          <input class="usr-input" name="email" type="email" required placeholder="usuario@espacophysio.com.br">
-        </div>
-        <div class="usr-field">
-          <label class="usr-label">Senha provisória</label>
+          <label class="usr-label">Senha</label>
           <input class="usr-input" name="password" type="password" required minlength="6" placeholder="Mínimo 6 caracteres">
         </div>
         <div class="usr-field">
@@ -154,12 +157,12 @@
       <input type="hidden" name="user_id" id="edit-user-id">
       <div class="usr-form-grid">
         <div class="usr-field usr-field-full">
-          <label class="usr-label">Nome completo</label>
+          <label class="usr-label">Usuário / Nome</label>
           <input class="usr-input" name="full_name" id="edit-full-name" required>
         </div>
         <div class="usr-field">
-          <label class="usr-label">E-mail</label>
-          <input class="usr-input" id="edit-email" disabled style="opacity:.55;cursor:not-allowed">
+          <label class="usr-label">Tipo de acesso</label>
+          <input class="usr-input" id="edit-email-display" disabled style="opacity:.55;cursor:not-allowed">
         </div>
         <div class="usr-field">
           <label class="usr-label">Nova senha <span style="font-weight:400;color:var(--muted)">(opcional)</span></label>
@@ -253,6 +256,7 @@
 .usr-input:focus,.usr-select:focus { border-color:var(--green,#2d6a2d) }
 
 .usr-form-erro { margin:4px 24px 0;padding:9px 12px;background:#fef2f2;color:#b91c1c;border-radius:8px;font-size:.82rem }
+.usr-tag-interno { display:inline-block;background:#f0fdf4;color:#15803d;font-size:.72rem;font-weight:600;padding:2px 8px;border-radius:99px;border:1px solid #bbf7d0 }
 </style>
 {% endblock %}
 
@@ -275,12 +279,17 @@ function openEditFromEl(btn) {
   const d = btn.dataset;
   document.getElementById('edit-user-id').value   = d.id;
   document.getElementById('edit-full-name').value = d.name;
-  document.getElementById('edit-email').value     = d.email;
   document.getElementById('edit-role').value      = d.role;
   document.getElementById('edit-modulos').value   = d.modulos || '';
   document.getElementById('edit-ativo').value     = d.active === 'true' ? 'true' : 'false';
   document.querySelector('#form-editar [name="nova_senha"]').value = '';
   document.getElementById('form-editar-erro').style.display = 'none';
+  // Exibe tipo de acesso: interno ou e-mail real
+  const emailDisp = document.getElementById('edit-email-display');
+  if (emailDisp) {
+    const em = d.email || '';
+    emailDisp.value = em.endsWith('@interno.espacophysio') ? 'Usuário interno (sem e-mail)' : em;
+  }
   onRoleChange(document.getElementById('edit-role'), 'editar');
   openModal('modal-editar');
 }
