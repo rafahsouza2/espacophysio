@@ -492,16 +492,28 @@ async def bi_pacientes(
     if period and not period_from:
         period_from = period_to = period
     reports = list_reports()
+
+    # Busca unidades disponíveis para o filtro
+    lista_unidades: list[str] = []
+    try:
+        from app.database import get_supabase_admin
+        sb_u = get_supabase_admin()
+        res_u = sb_u.table("bi_atendimentos").select("unidade").limit(5000).execute()
+        lista_unidades = sorted({r["unidade"] for r in (res_u.data or []) if r.get("unidade")})
+    except Exception:
+        pass
+
     return templates.TemplateResponse("bi_pacientes.html", {
-        "request":      request,
-        "user":         user,
-        "active_menu":  "bi",
-        "reports":      reports,
-        "period_from":  period_from,
-        "period_to":    period_to,
-        "date_from":    date_from,
-        "date_to":      date_to,
-        "current_unit": unit,
+        "request":        request,
+        "user":           user,
+        "active_menu":    "bi",
+        "reports":        reports,
+        "period_from":    period_from,
+        "period_to":      period_to,
+        "date_from":      date_from,
+        "date_to":        date_to,
+        "current_unit":   unit,
+        "lista_unidades": lista_unidades,
     })
 
 

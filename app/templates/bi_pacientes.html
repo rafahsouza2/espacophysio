@@ -20,6 +20,9 @@
   <div class="bi-period-actions">
     <select class="filter-select" id="pac-unit" onchange="pacUnitChanged()">
       <option value="">Todas as unidades</option>
+      {% for u in lista_unidades %}
+      <option value="{{ u }}" {% if current_unit == u %}selected{% endif %}>{{ u }}</option>
+      {% endfor %}
     </select>
   </div>
 </div>
