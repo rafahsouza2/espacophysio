@@ -436,6 +436,8 @@ async def bi_pacientes(
     period_from: str = None,
     period_to:   str = None,
     period:      str = None,
+    date_from:   str = None,   # AAAA-MM-DD
+    date_to:     str = None,
     unit:        str = None,
     user=Depends(require_auth),
 ):
@@ -448,12 +450,14 @@ async def bi_pacientes(
         period_from = period_to = period
     reports = list_reports()
     return templates.TemplateResponse("bi_pacientes.html", {
-        "request":     request,
-        "user":        user,
-        "active_menu": "bi",
-        "reports":     reports,
-        "period_from": period_from,
-        "period_to":   period_to,
+        "request":      request,
+        "user":         user,
+        "active_menu":  "bi",
+        "reports":      reports,
+        "period_from":  period_from,
+        "period_to":    period_to,
+        "date_from":    date_from,
+        "date_to":      date_to,
         "current_unit": unit,
     })
 
@@ -461,9 +465,11 @@ async def bi_pacientes(
 @router.get("/bi/pacientes/data")
 async def bi_pacientes_data(
     request:     Request,
-    period_from: str = None,
+    period_from: str = None,   # AAAA-MM (mês inteiro)
     period_to:   str = None,
     period:      str = None,
+    date_from:   str = None,   # AAAA-MM-DD (data exata)
+    date_to:     str = None,
     unit:        str = None,
     search:      str = None,
     page:        int = 1,
@@ -481,10 +487,12 @@ async def bi_pacientes_data(
         # Busca todas as linhas do período — tenta incluir tipo_atendimento (pode não existir ainda)
         def _build_query(cols: str):
             q = sb.table("bi_atendimentos").select(cols)
-            if period_from: q = q.gte("period_key", period_from)
-            if period_to:   q = q.lte("period_key", period_to)
-            if unit:        q = q.eq("unidade", unit)
-            if search:      q = q.ilike("paciente", f"%{search}%")
+            if date_from:    q = q.gte("data_atend", date_from)   # filtro por data exata
+            elif period_from: q = q.gte("period_key", period_from) # fallback por mês
+            if date_to:      q = q.lte("data_atend", date_to)
+            elif period_to:  q = q.lte("period_key", period_to)
+            if unit:   q = q.eq("unidade", unit)
+            if search: q = q.ilike("paciente", f"%{search}%")
             return q
 
         all_rows: list[dict] = []

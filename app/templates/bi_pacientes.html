@@ -3,7 +3,7 @@
 
 {% block sidebar_extra %}
 <div class="bi-sidebar-tabs">
-  <a class="bi-sidebar-tab" href="/bi{% if period_from %}?period_from={{ period_from }}{% if period_to %}&period_to={{ period_to }}{% endif %}{% endif %}">← B.I — Indicadores</a>
+  <a class="bi-sidebar-tab" href="/bi">← B.I — Indicadores</a>
   <div class="bi-sidebar-sep"></div>
   <span class="bi-sidebar-tab active">Analítico de Pacientes</span>
 </div>
@@ -15,46 +15,48 @@
 <div class="bi-header">
   <div>
     <span class="bi-label">PACIENTES — ANALÍTICO</span>
-    <h2 class="bi-title">
-      {% if period_from and period_to and period_from != period_to %}{{ period_from }} – {{ period_to }}
-      {% elif period_from %}{{ period_from }}
-      {% else %}Selecione um período{% endif %}
-    </h2>
+    <h2 class="bi-title" id="pac-title">Selecione um período</h2>
   </div>
   <div class="bi-period-actions">
-    <div class="period-range-wrap">
-      <select class="filter-select" id="pac-period-from" onchange="applyPacFilters()">
-        {% for r in reports %}
-        <option value="{{ r.period_key }}"
-          {% if period_from == r.period_key or (not period_from and loop.first) %}selected{% endif %}>
-          {{ r.periodo_label }}</option>
-        {% endfor %}
-      </select>
-      <span class="period-range-sep">até</span>
-      <select class="filter-select" id="pac-period-to" onchange="applyPacFilters()">
-        {% for r in reports %}
-        <option value="{{ r.period_key }}"
-          {% if period_to == r.period_key or (not period_to and loop.first) %}selected{% endif %}>
-          {{ r.periodo_label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <select class="filter-select" id="pac-unit" onchange="applyPacFilters()">
+    <select class="filter-select" id="pac-unit" onchange="pacUnitChanged()">
       <option value="">Todas as unidades</option>
     </select>
   </div>
 </div>
 
-{# ── Filtro de busca ── #}
+{# ── Filtros ── #}
 <div class="pac-filters">
-  <div style="flex:1;display:flex;flex-direction:column;gap:4px">
-    <label class="pac-label">Buscar paciente</label>
+
+  {# Seletor de período: datas específicas #}
+  <div class="pac-filter-group">
+    <label class="pac-label">De</label>
+    <input type="date" id="pac-date-from" class="pac-date-input" onchange="pacDateChanged()">
+  </div>
+  <div class="pac-filter-group">
+    <label class="pac-label">Até</label>
+    <input type="date" id="pac-date-to" class="pac-date-input" onchange="pacDateChanged()">
+  </div>
+
+  {# Busca por nome #}
+  <div class="pac-filter-group" style="flex:1;min-width:200px">
+    <label class="pac-label">Paciente</label>
     <input type="text" id="pac-search" class="pac-input"
            placeholder="Nome do paciente…"
            onkeydown="if(event.key==='Enter')pacBuscar(1)">
   </div>
-  <button class="pac-btn-primary" onclick="pacBuscar(1)">Buscar</button>
-  <a class="pac-btn-outline" href="#" onclick="pacExportar(event)">↓ Excel</a>
+
+  <div style="display:flex;gap:8px;align-self:flex-end">
+    <button class="pac-btn-primary" onclick="pacBuscar(1)">Buscar</button>
+    <a class="pac-btn-outline" href="#" onclick="pacExportar(event)">↓ Excel</a>
+  </div>
+
+</div>
+
+{# Aviso de intervalo inválido #}
+<div id="pac-range-warn" style="display:none;margin:-4px 0 10px;
+     padding:10px 14px;background:#fef3c7;border-radius:10px;
+     font-size:.84rem;color:#92400e;font-weight:600">
+  ⚠ Período máximo: 3 meses. Ajuste as datas.
 </div>
 
 {# ── Cards de resumo ── #}
@@ -78,7 +80,7 @@
   </article>
 </div>
 
-{# ── Tabela principal ── #}
+{# ── Tabela ── #}
 <article class="dashboard-card glass" style="padding:0;overflow:hidden">
   <div style="overflow-x:auto">
     <table class="bi-table bi-table-green pac-table" id="pac-table">
@@ -93,7 +95,7 @@
         </tr>
       </thead>
       <tbody id="pac-tbody">
-        <tr><td colspan="6" class="pac-empty">Use os filtros acima e clique em Buscar.</td></tr>
+        <tr><td colspan="6" class="pac-empty">Selecione o período e clique em Buscar.</td></tr>
       </tbody>
     </table>
   </div>
@@ -110,79 +112,54 @@
   background: var(--card); border: 1px solid var(--line);
   border-radius: 14px; padding: 16px 18px; margin: 12px 0;
 }
+.pac-filter-group { display: flex; flex-direction: column; gap: 4px; }
 .pac-label { font-size: .72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+.pac-date-input {
+  padding: 8px 12px; border-radius: 9px; border: 1.5px solid var(--line);
+  background: var(--bg); color: var(--text); font-size: .86rem; outline: none;
+  cursor: pointer; min-width: 148px;
+}
+.pac-date-input:focus { border-color: var(--primary); }
+.pac-date-input:invalid { border-color: #e87c3e; }
+
 .pac-input {
   padding: 8px 12px; border-radius: 9px; border: 1.5px solid var(--line);
   background: var(--bg); color: var(--text); font-size: .84rem; outline: none; width: 100%;
 }
 .pac-input:focus { border-color: var(--primary); }
+
 .pac-btn-primary {
   padding: 8px 22px; border-radius: 9px; border: none; cursor: pointer;
-  background: var(--primary); color: #fff; font-weight: 700; font-size: .84rem; align-self: flex-end;
+  background: var(--primary); color: #fff; font-weight: 700; font-size: .84rem;
 }
 .pac-btn-primary:hover { filter: brightness(1.08); }
 .pac-btn-outline {
   padding: 8px 16px; border-radius: 9px; border: 1.5px solid var(--primary);
   color: var(--primary); font-weight: 700; font-size: .84rem;
-  text-decoration: none; align-self: flex-end; white-space: nowrap;
+  text-decoration: none; white-space: nowrap;
 }
 .pac-btn-outline:hover { background: rgba(61,107,26,.07); }
+
 .pac-empty { text-align: center; padding: 48px; color: var(--muted); }
 
-/* Tabela de pacientes com rowspan */
+/* Tabela rowspan */
 .pac-table tbody tr { border-bottom: none; }
-
-/* Linha de separação entre pacientes */
 .pac-table tbody tr.pac-sep td {
   padding: 0 !important; height: 6px;
-  background: var(--line, #e8e8e8);
-  border-bottom: none;
+  background: var(--line, #e8e8e8); border-bottom: none;
 }
-@media (prefers-color-scheme: dark) {
-  .pac-table tbody tr.pac-sep td { background: rgba(255,255,255,.08); }
-}
-
-/* Primeira linha do paciente (com dados principais) */
 .pac-table tbody tr.pac-first td {
-  border-top: 1.5px solid var(--line);
-  padding-top: 10px;
-  vertical-align: top;
+  border-top: 1.5px solid var(--line); padding-top: 10px; vertical-align: top;
 }
-/* Linhas de tipo adicionais (sem dados do paciente) */
-.pac-table tbody tr.pac-tipo td {
-  padding-top: 3px;
-  padding-bottom: 3px;
-  vertical-align: middle;
-}
-/* Última linha do paciente */
+.pac-table tbody tr.pac-tipo td { padding-top: 3px; padding-bottom: 3px; vertical-align: middle; }
 .pac-table tbody tr.pac-last td { padding-bottom: 10px; }
-
-/* Nome do paciente */
-.pac-nome {
-  font-weight: 700; font-size: .88rem;
-  vertical-align: top; padding-top: 10px !important;
-}
-
-/* Tipo de atendimento */
-.pac-tipo-nome {
-  font-size: .83rem; color: var(--text);
-  display: flex; align-items: center; gap: 6px;
-}
-.pac-tipo-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--primary); flex-shrink: 0; opacity: .6;
-}
-
-/* Quantidade por tipo — destaque */
-.pac-qtde {
-  font-weight: 700; font-size: .9rem;
-  color: var(--primary); text-align: right;
-}
-
-/* Linha sem tipos */
+.pac-nome { font-weight: 700; font-size: .88rem; vertical-align: top; padding-top: 10px !important; }
+.pac-tipo-nome { font-size: .83rem; color: var(--text); display: flex; align-items: center; gap: 6px; }
+.pac-tipo-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); flex-shrink: 0; opacity: .6; }
+.pac-qtde { font-weight: 700; font-size: .9rem; color: var(--primary); text-align: right; }
 .pac-no-tipo { font-size: .8rem; color: var(--muted); font-style: italic; }
 
-/* Paginação */
 .pac-pagination {
   display: flex; align-items: center; justify-content: center; gap: 16px;
   padding: 14px; border-top: 1px solid var(--line);
@@ -196,39 +173,91 @@
 </style>
 
 <script>
-const PAC_PERIOD_FROM = {{ (period_from or '') | tojson }};
-const PAC_PERIOD_TO   = {{ (period_to   or '') | tojson }};
-const PAC_UNIT        = {{ (current_unit or '') | tojson }};
+const PAC_DATE_FROM  = {{ (date_from  or '') | tojson }};
+const PAC_DATE_TO    = {{ (date_to    or '') | tojson }};
+const PAC_UNIT       = {{ (current_unit or '') | tojson }};
+const MESES_PT       = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
 let pacState = { page: 1, pages: 1 };
 
-// Pré-seleciona unidade da URL se houver
-if (PAC_UNIT) {
-  const sel = document.getElementById('pac-unit');
-  if (sel && !sel.querySelector(`option[value="${PAC_UNIT}"]`)) {
-    sel.appendChild(new Option(PAC_UNIT, PAC_UNIT, true, true));
+// ── Init: preenche campos de data com valores da URL ───────────────────
+(function init() {
+  if (PAC_DATE_FROM) document.getElementById('pac-date-from').value = PAC_DATE_FROM;
+  if (PAC_DATE_TO)   document.getElementById('pac-date-to').value   = PAC_DATE_TO;
+  if (PAC_UNIT) {
+    const sel = document.getElementById('pac-unit');
+    if (!sel.querySelector(`option[value="${PAC_UNIT}"]`))
+      sel.appendChild(new Option(PAC_UNIT, PAC_UNIT, true, true));
+    else
+      sel.value = PAC_UNIT;
+  }
+  updateTitle();
+  if (PAC_DATE_FROM && PAC_DATE_TO) pacBuscar(1);
+})();
+
+function fmtDate(str) {
+  if (!str) return '';
+  const [y, m, d] = str.split('-');
+  return `${d}/${MESES_PT[parseInt(m)-1]}/${y}`;
+}
+
+function updateTitle() {
+  const df = document.getElementById('pac-date-from').value;
+  const dt = document.getElementById('pac-date-to').value;
+  const el = document.getElementById('pac-title');
+  if (df && dt)    el.textContent = `${fmtDate(df)} – ${fmtDate(dt)}`;
+  else if (df)     el.textContent = `A partir de ${fmtDate(df)}`;
+  else             el.textContent = 'Selecione um período';
+}
+
+function diffMonths(df, dt) {
+  const a = new Date(df), b = new Date(dt);
+  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth())
+       + (b.getDate() >= a.getDate() ? 0 : -1);
+}
+
+function pacDateChanged() {
+  const df = document.getElementById('pac-date-from').value;
+  const dt = document.getElementById('pac-date-to').value;
+  const warn = document.getElementById('pac-range-warn');
+
+  updateTitle();
+
+  // Auto-ajuste: se "até" < "de", iguala
+  if (df && dt && dt < df) {
+    document.getElementById('pac-date-to').value = df;
+    return;
+  }
+  // Aviso se > 3 meses
+  if (df && dt && diffMonths(df, dt) > 3) {
+    warn.style.display = '';
+  } else {
+    warn.style.display = 'none';
   }
 }
 
-function applyPacFilters() {
-  const pf = document.getElementById('pac-period-from').value;
-  const pt = document.getElementById('pac-period-to').value;
-  const un = document.getElementById('pac-unit').value;
-  let url = '/bi/pacientes?';
-  if (pf) url += `period_from=${encodeURIComponent(pf)}&`;
-  if (pt) url += `period_to=${encodeURIComponent(pt)}&`;
-  if (un) url += `unit=${encodeURIComponent(un)}`;
-  location.href = url;
+function pacUnitChanged() {
+  // Só recarrega se já há uma busca ativa
+  if (document.getElementById('pac-summary').style.display !== 'none') pacBuscar(1);
+}
+
+function rangeValid() {
+  const df = document.getElementById('pac-date-from').value;
+  const dt = document.getElementById('pac-date-to').value;
+  if (!df || !dt) return false;
+  if (dt < df) return false;
+  if (diffMonths(df, dt) > 3) return false;
+  return true;
 }
 
 function pacUrlParams(page) {
-  const pf   = document.getElementById('pac-period-from').value || PAC_PERIOD_FROM;
-  const pt   = document.getElementById('pac-period-to').value   || PAC_PERIOD_TO;
-  const unit = document.getElementById('pac-unit').value        || PAC_UNIT;
+  const df   = document.getElementById('pac-date-from').value;
+  const dt   = document.getElementById('pac-date-to').value;
+  const unit = document.getElementById('pac-unit').value || PAC_UNIT;
   const srch = (document.getElementById('pac-search').value || '').trim();
   const p = new URLSearchParams();
-  if (pf)   p.set('period_from', pf);
-  if (pt)   p.set('period_to',   pt);
+  if (df)   p.set('date_from', df);
+  if (dt)   p.set('date_to',   dt);
   if (unit) p.set('unit', unit);
   if (srch) p.set('search', srch);
   p.set('page', page); p.set('per_page', 30);
@@ -245,13 +274,8 @@ function buildRows(pac) {
   tipos.forEach((t, i) => {
     const isFirst = i === 0;
     const isLast  = i === tipos.length - 1;
-    const cls = [
-      isFirst ? 'pac-first' : 'pac-tipo',
-      isLast  ? 'pac-last'  : ''
-    ].join(' ').trim();
-
+    const cls = (isFirst ? 'pac-first ' : 'pac-tipo ') + (isLast ? 'pac-last' : '');
     if (isFirst) {
-      // Linha com dados do paciente (rowspan)
       rows += `<tr class="${cls}">
         <td class="pac-nome" rowspan="${n}">${pac.nome}</td>
         <td class="right" rowspan="${n}">${pac.agendamentos}</td>
@@ -277,13 +301,21 @@ function buildRows(pac) {
       <td colspan="2" class="pac-no-tipo">Sem tipo registrado</td>
     </tr>`;
   }
-
-  // Separador visual entre pacientes
   rows += `<tr class="pac-sep"><td colspan="6"></td></tr>`;
   return rows;
 }
 
 async function pacBuscar(page) {
+  if (!rangeValid()) {
+    const warn = document.getElementById('pac-range-warn');
+    warn.style.display = '';
+    warn.textContent = document.getElementById('pac-date-from').value && document.getElementById('pac-date-to').value
+      ? '⚠ Período máximo: 3 meses. Ajuste as datas.'
+      : '⚠ Selecione as datas de início e fim.';
+    return;
+  }
+  document.getElementById('pac-range-warn').style.display = 'none';
+
   if (page < 1 || page > pacState.pages) return;
   pacState.page = page;
   const tbody = document.getElementById('pac-tbody');
@@ -298,20 +330,16 @@ async function pacBuscar(page) {
     }
     pacState.pages = data.pages;
 
-    // Cards
     document.getElementById('pac-cnt').textContent   = data.total.toLocaleString('pt-BR');
     document.getElementById('pac-agend').textContent = (data.total_agend || 0).toLocaleString('pt-BR');
     document.getElementById('pac-fin').textContent   = (data.total_fin  || 0).toLocaleString('pt-BR');
     document.getElementById('pac-avg').textContent   = String(data.avg_fin || 0).replace('.', ',');
     document.getElementById('pac-summary').style.display = '';
 
-    if (!data.rows.length) {
-      tbody.innerHTML = `<tr><td colspan="6" class="pac-empty">Nenhum paciente encontrado.</td></tr>`;
-    } else {
-      tbody.innerHTML = data.rows.map(buildRows).join('');
-    }
+    tbody.innerHTML = data.rows.length
+      ? data.rows.map(buildRows).join('')
+      : `<tr><td colspan="6" class="pac-empty">Nenhum paciente encontrado.</td></tr>`;
 
-    // Paginação
     const pg = document.getElementById('pac-pagination');
     pg.style.display = data.pages > 1 ? '' : 'none';
     document.getElementById('pac-page-info').textContent =
@@ -326,13 +354,12 @@ async function pacBuscar(page) {
 
 async function pacExportar(e) {
   e.preventDefault();
-  const params = pacUrlParams(1);
-  // Busca todas as páginas e monta CSV
+  if (!rangeValid()) { document.getElementById('pac-range-warn').style.display = ''; return; }
   const allRows = [];
   let pg = 1, totalPgs = 1;
   do {
-    const p = new URLSearchParams(params);
-    p.set('page', pg); p.set('per_page', 200);
+    const p = new URLSearchParams(pacUrlParams(pg));
+    p.set('per_page', 200);
     const r = await fetch('/bi/pacientes/data?' + p.toString());
     const d = await r.json();
     if (!d.ok) break;
@@ -341,33 +368,30 @@ async function pacExportar(e) {
     pg++;
   } while (pg <= totalPgs);
 
-  // Monta CSV
   const lines = ['Paciente;Agendamentos;Finalizados;% Comparecimento;Tipo de Atendimento;Quantidade'];
   for (const pac of allRows) {
     const pct = pac.agendamentos > 0 ? Math.round(pac.finalizados / pac.agendamentos * 100) : 0;
     if (pac.tipos && pac.tipos.length) {
       pac.tipos.forEach((t, i) => {
-        const nome  = i === 0 ? pac.nome : '';
-        const agend = i === 0 ? pac.agendamentos : '';
-        const fin   = i === 0 ? pac.finalizados  : '';
-        const p2    = i === 0 ? pct + '%'        : '';
-        lines.push(`${nome};${agend};${fin};${p2};${t.nome};${t.qtde}`);
+        lines.push([
+          i === 0 ? pac.nome : '',
+          i === 0 ? pac.agendamentos : '',
+          i === 0 ? pac.finalizados  : '',
+          i === 0 ? pct + '%'        : '',
+          t.nome, t.qtde
+        ].join(';'));
       });
     } else {
       lines.push(`${pac.nome};${pac.agendamentos};${pac.finalizados};${pct}%;;`);
     }
-    lines.push(';;;;; '); // linha em branco entre pacientes
+    lines.push(';;;;;');
   }
 
-  const bom  = '﻿';
-  const blob = new Blob([bom + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = 'analitico_pacientes.csv';
-  a.click(); URL.revokeObjectURL(url);
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob), download: 'analitico_pacientes.csv'
+  });
+  a.click(); URL.revokeObjectURL(a.href);
 }
-
-// Busca automática se período definido
-if (PAC_PERIOD_FROM || PAC_PERIOD_TO) pacBuscar(1);
 </script>
 {% endblock %}
