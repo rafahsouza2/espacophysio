@@ -563,24 +563,24 @@ def parse_xls(content: bytes, save: bool = True) -> dict:
         pct_acima_60 = round(total_acima_60 / tot_pac_demo * 100, 1)
         pct_acima_80 = round(total_acima_80 / tot_pac_demo * 100, 1)
 
-        # Distribuição por localidade — chave = "Bairro, Cidade" para geocodificação precisa
+        # Distribuição por localidade — chave = bairro (sem cidade) para unificar variações
+        # Ex: "Paranoá, Brasília" e "Paranoá, Paranoá" → ambos viram "Paranoá"
+        #     "Sobradinho" e "Sobradinho, Brasília"    → ambos viram "Sobradinho"
         localidade = {}
         bairro_s = df_real["_bairro"].replace("", None) if "_bairro" in df_real.columns else None
         cidade_s = df_real["_cidade"].replace("", None) if "_cidade" in df_real.columns else None
 
         if bairro_s is not None and bairro_s.notna().any():
             _tmp = df_real.copy()
+            # Usa apenas o bairro como chave para evitar fragmentação
+            _tmp["_loc_key"] = bairro_s.fillna("").str.strip().str.title()
+            # Registros sem bairro mas com cidade usam a cidade como fallback
             if cidade_s is not None:
-                # Combina "Bairro, Cidade" quando ambas colunas têm valor
-                _both = bairro_s.notna() & cidade_s.notna()
-                _tmp["_loc_key"] = bairro_s.fillna("").str.strip().str.title()
-                _tmp.loc[_both, "_loc_key"] = (
-                    bairro_s[_both].astype(str).str.strip().str.title() + ", " +
-                    cidade_s[_both].astype(str).str.strip().str.title()
+                _sem_bairro = bairro_s.isna() | (bairro_s.astype(str).str.strip() == "")
+                _tmp.loc[_sem_bairro, "_loc_key"] = (
+                    cidade_s[_sem_bairro].fillna("").astype(str).str.strip().str.title()
                 )
-            else:
-                _tmp["_loc_key"] = bairro_s.fillna("").str.strip().str.title()
-            locs = _tmp.loc[bairro_s.notna(), "_loc_key"].value_counts().head(20)
+            locs = _tmp.loc[_tmp["_loc_key"].str.strip() != "", "_loc_key"].value_counts().head(20)
             localidade = {str(k): int(v) for k, v in locs.items() if str(k).strip()}
         elif cidade_s is not None and cidade_s.notna().any():
             cidades = cidade_s.dropna().str.strip().str.title().value_counts().head(20)
