@@ -1,6 +1,6 @@
 from pathlib import Path
 import asyncio
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
@@ -627,16 +627,10 @@ async def bi_pacientes_data(
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=500)
 
 
-async def _bg_save(data: dict) -> None:
-    """Persiste no Supabase em background (após resposta enviada ao cliente)."""
-    await asyncio.to_thread(save_parsed_result, data)
-
-
 @router.post("/bi/upload")
 async def bi_upload(
-    request:          Request,
-    background_tasks: BackgroundTasks,
-    file:             UploadFile = File(...),
+    request: Request,
+    file:    UploadFile = File(...),
     user=Depends(require_auth),
 ):
     if isinstance(user, RedirectResponse):
@@ -654,16 +648,15 @@ async def bi_upload(
         return JSONResponse({"ok": False, "erro": "Arquivo muito grande (máx. 50 MB)."}, status_code=400)
 
     try:
-        # Roda o parse em thread (não bloqueia o event loop); save=False = sem chamar Supabase ainda
-        data = await asyncio.to_thread(parse_xls, content, False)
+        # Parse + save em thread — não bloqueia o event loop; em serverless (Vercel) o
+        # BackgroundTask é morto junto com a função, então save=True garante o salvamento
+        # antes de retornar a resposta.
+        data = await asyncio.to_thread(parse_xls, content, True)
     except ValueError as e:
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=422)
     except Exception as e:
         print("BI UPLOAD ERROR:", repr(e))
         return JSONResponse({"ok": False, "erro": "Erro ao processar o arquivo. Verifique se é o export correto."}, status_code=500)
-
-    # Agenda o salvamento no Supabase para DEPOIS da resposta ser enviada
-    background_tasks.add_task(_bg_save, data)
 
     k = data["kpis"]
     return JSONResponse({
