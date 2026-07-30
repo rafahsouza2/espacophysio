@@ -2819,24 +2819,43 @@ document.querySelectorAll('#bi-sidebar-tabs .bi-sidebar-tab').forEach(btn => {
 async function doUpload(file) {
   if (!file) return;
   const prog = document.getElementById('upload-progress');
-  if (prog) { prog.style.display = 'block'; prog.className = 'upload-progress upload-toast'; prog.textContent = '⏳ Processando arquivo...'; }
-  const fd = new FormData();
-  fd.append('file', file);
+  const _err = msg => { if (prog) { prog.className = 'upload-progress upload-toast err'; prog.textContent = '❌ ' + msg; } };
+  if (prog) { prog.style.display = 'block'; prog.className = 'upload-progress upload-toast'; prog.textContent = '⏳ Enviando arquivo...'; }
+
   try {
-    const r    = await fetch('/bi/upload', { method: 'POST', body: fd });
-    const data = await r.json();
+    // 1. Obtém URL assinada para upload direto ao Supabase Storage (bypassa limite do Vercel)
+    const fd1 = new FormData();
+    fd1.append('filename', file.name);
+    const r1 = await fetch('/bi/upload-url', { method: 'POST', body: fd1 });
+    const d1 = await r1.json();
+    if (!d1.ok) { _err(d1.erro || 'Erro ao obter URL de upload.'); return; }
+
+    // 2. Upload direto ao Supabase Storage
+    const r2 = await fetch(d1.signed_url, {
+      method: 'PUT', body: file,
+      headers: { 'Content-Type': 'application/octet-stream', 'x-upsert': 'true' },
+    });
+    if (!r2.ok) { _err('Erro ao enviar arquivo (' + r2.status + ').'); return; }
+
+    // 3. Servidor baixa do Storage, processa e salva
+    if (prog) prog.textContent = '⏳ Processando arquivo...';
+    const fd3 = new FormData();
+    fd3.append('path', d1.path);
+    const r3   = await fetch('/bi/process-upload', { method: 'POST', body: fd3 });
+    const data = await r3.json();
+
     if (data.ok) {
       if (data.save_error) {
-        if (prog) { prog.className = 'upload-progress upload-toast err'; prog.textContent = '⚠️ Processado mas não salvo: ' + data.save_error; }
+        _err('Processado mas não salvo: ' + data.save_error);
       } else {
         if (prog) { prog.className = 'upload-progress upload-toast ok'; prog.textContent = '✅ ' + data.periodo + ' importado — ' + data.linhas + ' registros'; }
         setTimeout(() => { location.href = '/bi?period=' + data.period_key; }, 1200);
       }
     } else {
-      if (prog) { prog.className = 'upload-progress upload-toast err'; prog.textContent = '❌ ' + data.erro; }
+      _err(data.erro || 'Erro desconhecido.');
     }
   } catch(e) {
-    if (prog) { prog.className = 'upload-progress upload-toast err'; prog.textContent = '❌ Erro de conexão.'; }
+    _err('Erro de conexão.');
   }
 }
 

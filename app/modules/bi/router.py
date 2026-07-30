@@ -1,5 +1,6 @@
 from pathlib import Path
 import asyncio
+import uuid as _uuid
 from fastapi import APIRouter, Depends, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -657,6 +658,89 @@ async def bi_upload(
     except Exception as e:
         print("BI UPLOAD ERROR:", repr(e))
         return JSONResponse({"ok": False, "erro": "Erro ao processar o arquivo. Verifique se é o export correto."}, status_code=500)
+
+    k = data["kpis"]
+    return JSONResponse({
+        "ok":          True,
+        "period_key":  data["period_key"],
+        "periodo":     data["periodo"]["label"],
+        "linhas":      data["total_registros"],
+        "finalizados": k["total_atendimentos"],
+        "producao":    k["total_producao"],
+        "save_error":  None,
+    })
+
+
+_BUCKET = "bi-uploads"
+
+
+def _ensure_bucket(sb) -> None:
+    try:
+        sb.storage.create_bucket(_BUCKET, options={"public": False})
+    except Exception:
+        pass  # já existe
+
+
+@router.post("/bi/upload-url")
+async def bi_upload_url(
+    request:  Request,
+    filename: str = Form(...),
+    user=Depends(require_auth),
+):
+    """Retorna uma URL assinada para o browser fazer upload direto ao Supabase Storage."""
+    if isinstance(user, RedirectResponse):
+        return user
+    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
+    if role not in ("admin", "coordenacao"):
+        return JSONResponse({"ok": False, "erro": "Sem permissão."}, status_code=403)
+
+    from app.database import get_supabase_admin
+    sb = get_supabase_admin()
+    _ensure_bucket(sb)
+
+    path = f"uploads/{_uuid.uuid4()}/{filename}"
+    try:
+        result = sb.storage.from_(_BUCKET).create_signed_upload_url(path)
+        # supabase-py 2.x retorna objeto com atributos ou dict
+        signed_url = getattr(result, "signed_url", None) or result.get("signedURL") or result.get("signed_url")
+        return JSONResponse({"ok": True, "signed_url": signed_url, "path": path})
+    except Exception as e:
+        return JSONResponse({"ok": False, "erro": str(e)}, status_code=500)
+
+
+@router.post("/bi/process-upload")
+async def bi_process_upload(
+    request: Request,
+    path:    str = Form(...),
+    user=Depends(require_auth),
+):
+    """Baixa do Supabase Storage, processa e salva. Chamado após upload direto do browser."""
+    if isinstance(user, RedirectResponse):
+        return user
+    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
+    if role not in ("admin", "coordenacao"):
+        return JSONResponse({"ok": False, "erro": "Sem permissão."}, status_code=403)
+
+    from app.database import get_supabase_admin
+    sb = get_supabase_admin()
+
+    try:
+        content: bytes = sb.storage.from_(_BUCKET).download(path)
+    except Exception as e:
+        return JSONResponse({"ok": False, "erro": f"Erro ao baixar arquivo: {e}"}, status_code=500)
+
+    try:
+        data = await asyncio.to_thread(parse_xls, content, True)
+    except ValueError as e:
+        return JSONResponse({"ok": False, "erro": str(e)}, status_code=422)
+    except Exception as e:
+        print("BI PROCESS ERROR:", repr(e))
+        return JSONResponse({"ok": False, "erro": "Erro ao processar o arquivo. Verifique se é o export correto."}, status_code=500)
+    finally:
+        try:
+            sb.storage.from_(_BUCKET).remove([path])
+        except Exception:
+            pass
 
     k = data["kpis"]
     return JSONResponse({
