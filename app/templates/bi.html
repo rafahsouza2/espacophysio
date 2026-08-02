@@ -2823,26 +2823,33 @@ async function doUpload(file) {
   if (prog) { prog.style.display = 'block'; prog.className = 'upload-progress upload-toast'; prog.textContent = '⏳ Enviando arquivo...'; }
 
   try {
-    // 1. Obtém URL assinada para upload direto ao Supabase Storage (bypassa limite do Vercel)
-    const fd1 = new FormData();
-    fd1.append('filename', file.name);
-    const r1 = await fetch('/bi/upload-url', { method: 'POST', body: fd1 });
-    const d1 = await r1.json();
-    if (!d1.ok) { _err(d1.erro || 'Erro ao obter URL de upload.'); return; }
+    // Divide em chunks de 3 MB (abaixo do limite de 4,5 MB do Vercel)
+    const CHUNK = 3 * 1024 * 1024;
+    const total = Math.ceil(file.size / CHUNK) || 1;
+    const uid   = crypto.randomUUID();
 
-    // 2. Upload direto ao Supabase Storage
-    const r2 = await fetch(d1.signed_url, {
-      method: 'PUT', body: file,
-      headers: { 'Content-Type': 'application/octet-stream', 'x-upsert': 'true' },
-    });
-    if (!r2.ok) { _err('Erro ao enviar arquivo (' + r2.status + ').'); return; }
+    for (let i = 0; i < total; i++) {
+      const slice = file.slice(i * CHUNK, (i + 1) * CHUNK);
+      const fd = new FormData();
+      fd.append('chunk', slice, 'chunk');
+      fd.append('upload_id',    uid);
+      fd.append('chunk_index',  i);
+      fd.append('total_chunks', total);
+      fd.append('filename',     file.name);
+      const r = await fetch('/bi/upload-chunk', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!d.ok) { _err(d.erro || 'Erro no envio (chunk ' + i + ').'); return; }
+      if (prog) prog.textContent = `⏳ Enviando… ${Math.round((i + 1) / total * 100)}%`;
+    }
 
-    // 3. Servidor baixa do Storage, processa e salva
+    // Servidor monta, processa e salva
     if (prog) prog.textContent = '⏳ Processando arquivo...';
-    const fd3 = new FormData();
-    fd3.append('path', d1.path);
-    const r3   = await fetch('/bi/process-upload', { method: 'POST', body: fd3 });
-    const data = await r3.json();
+    const fd2 = new FormData();
+    fd2.append('upload_id',    uid);
+    fd2.append('total_chunks', total);
+    fd2.append('filename',     file.name);
+    const r2   = await fetch('/bi/process-chunks', { method: 'POST', body: fd2 });
+    const data = await r2.json();
 
     if (data.ok) {
       if (data.save_error) {
@@ -2855,7 +2862,7 @@ async function doUpload(file) {
       _err(data.erro || 'Erro desconhecido.');
     }
   } catch(e) {
-    _err('Erro de conexão.');
+    _err('Erro de conexão: ' + e.message);
   }
 }
 

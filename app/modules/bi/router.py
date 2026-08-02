@@ -681,40 +681,48 @@ def _ensure_bucket(sb) -> None:
         pass  # já existe
 
 
-@router.post("/bi/upload-url")
-async def bi_upload_url(
-    request:  Request,
-    filename: str = Form(...),
+def _storage_upload(sb, path: str, data: bytes) -> None:
+    sb.storage.from_(_BUCKET).upload(path, data, file_options={"upsert": "true"})
+
+
+@router.post("/bi/upload-chunk")
+async def bi_upload_chunk(
+    request:      Request,
+    chunk:        UploadFile = File(...),
+    upload_id:    str = Form(...),
+    chunk_index:  int = Form(...),
+    total_chunks: int = Form(...),
+    filename:     str = Form(...),
     user=Depends(require_auth),
 ):
-    """Retorna uma URL assinada para o browser fazer upload direto ao Supabase Storage."""
+    """Recebe um chunk (≤3 MB) e salva no Supabase Storage."""
     if isinstance(user, RedirectResponse):
         return user
     role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
     if role not in ("admin", "coordenacao"):
         return JSONResponse({"ok": False, "erro": "Sem permissão."}, status_code=403)
 
+    data = await chunk.read()
     from app.database import get_supabase_admin
     sb = get_supabase_admin()
     _ensure_bucket(sb)
-
-    path = f"uploads/{_uuid.uuid4()}/{filename}"
+    path = f"chunks/{upload_id}/{chunk_index:04d}"
     try:
-        result = sb.storage.from_(_BUCKET).create_signed_upload_url(path)
-        # supabase-py 2.x retorna objeto com atributos ou dict
-        signed_url = getattr(result, "signed_url", None) or result.get("signedURL") or result.get("signed_url")
-        return JSONResponse({"ok": True, "signed_url": signed_url, "path": path})
+        await asyncio.to_thread(_storage_upload, sb, path, data)
+        return JSONResponse({"ok": True, "chunk": chunk_index})
     except Exception as e:
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=500)
 
 
-@router.post("/bi/process-upload")
-async def bi_process_upload(
-    request: Request,
-    path:    str = Form(...),
+@router.post("/bi/process-chunks")
+async def bi_process_chunks(
+    request:      Request,
+    upload_id:    str = Form(...),
+    total_chunks: int = Form(...),
+    filename:     str = Form(...),
     user=Depends(require_auth),
 ):
-    """Baixa do Supabase Storage, processa e salva. Chamado após upload direto do browser."""
+    """Baixa os chunks do Storage, monta, processa e salva."""
     if isinstance(user, RedirectResponse):
         return user
     role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
@@ -725,9 +733,18 @@ async def bi_process_upload(
     sb = get_supabase_admin()
 
     try:
-        content: bytes = sb.storage.from_(_BUCKET).download(path)
+        parts = []
+        for i in range(total_chunks):
+            parts.append(sb.storage.from_(_BUCKET).download(f"chunks/{upload_id}/{i:04d}"))
+        content = b"".join(parts)
     except Exception as e:
-        return JSONResponse({"ok": False, "erro": f"Erro ao baixar arquivo: {e}"}, status_code=500)
+        return JSONResponse({"ok": False, "erro": f"Erro ao montar arquivo: {e}"}, status_code=500)
+    finally:
+        try:
+            paths = [f"chunks/{upload_id}/{i:04d}" for i in range(total_chunks)]
+            sb.storage.from_(_BUCKET).remove(paths)
+        except Exception:
+            pass
 
     try:
         data = await asyncio.to_thread(parse_xls, content, True)
@@ -736,11 +753,6 @@ async def bi_process_upload(
     except Exception as e:
         print("BI PROCESS ERROR:", repr(e))
         return JSONResponse({"ok": False, "erro": "Erro ao processar o arquivo. Verifique se é o export correto."}, status_code=500)
-    finally:
-        try:
-            sb.storage.from_(_BUCKET).remove([path])
-        except Exception:
-            pass
 
     k = data["kpis"]
     return JSONResponse({
