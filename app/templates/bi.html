@@ -37,7 +37,7 @@
 {% block content %}
 
 {% if user.role in ['admin', 'coordenacao'] %}
-<input type="file" id="upload-input" accept=".xls,.xlsx,.html,.htm" style="display:none" />
+<input type="file" id="upload-input" accept=".xls,.xlsx,.html,.htm,.csv" style="display:none" />
 <div class="upload-progress upload-toast" id="upload-progress"></div>
 {% endif %}
 

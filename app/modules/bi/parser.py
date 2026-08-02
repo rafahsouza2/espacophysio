@@ -43,6 +43,22 @@ class _TableExtractor(HTMLParser):
             self._cur_cell.append(data)
 
 
+def _parse_csv(content: bytes) -> pd.DataFrame:
+    """Tenta ler CSV com separadores e encodings comuns."""
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        for sep in (";", ",", "\t"):
+            try:
+                df = pd.read_csv(
+                    io.BytesIO(content), sep=sep, encoding=enc,
+                    on_bad_lines="skip", dtype=str,
+                )
+                if len(df.columns) >= 4:
+                    return df
+            except Exception:
+                continue
+    raise ValueError("Não foi possível ler o arquivo CSV.")
+
+
 def _parse_html_table(content: bytes, encoding: str = "cp1252") -> pd.DataFrame:
     """Parse an HTML table using Python's built-in html.parser (no size limits).
     Raises UnicodeDecodeError if the encoding is wrong so the caller can try the next one."""
@@ -229,16 +245,18 @@ def parse_xls(content: bytes, save: bool = True) -> dict:
 
     # 1. Detectar formato e ler
     buf     = io.BytesIO(content)
+    # PK = ZIP magic → XLSX; "<" como primeiro char não-espaço → HTML table; resto → CSV
+    sample  = content[:500].lstrip(b'\xef\xbb\xbf\xff\xfe\xfe\xff \r\n\t')
     is_xlsx = content[:2] == b'PK'
+    is_html = not is_xlsx and sample[:1] == b'<'
 
     if is_xlsx:
         try:
             df = pd.read_excel(buf, header=0, engine="openpyxl")
         except Exception as e:
             raise ValueError(f"Erro ao ler XLSX: {e}")
-    else:
+    elif is_html:
         df = None
-        # Try UTF-8 first (handles BOM), then legacy Windows encodings
         for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
             try:
                 df = _parse_html_table(content, encoding=enc)
@@ -246,7 +264,13 @@ def parse_xls(content: bytes, save: bool = True) -> dict:
             except Exception:
                 continue
         if df is None:
-            raise ValueError("Não foi possível ler o arquivo.")
+            raise ValueError("Não foi possível ler o arquivo HTML.")
+    else:
+        # CSV (separador e encoding detectados automaticamente)
+        try:
+            df = _parse_csv(content)
+        except Exception as e:
+            raise ValueError(f"Não foi possível ler o arquivo: {e}")
 
     df.columns = [str(c).strip() for c in df.columns]
 

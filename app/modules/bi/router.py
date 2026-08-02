@@ -641,8 +641,8 @@ async def bi_upload(
     if role not in ("admin", "coordenacao"):
         return JSONResponse({"ok": False, "erro": "Sem permissão para importar dados."}, status_code=403)
 
-    if not file.filename.lower().endswith((".xls", ".xlsx", ".html", ".htm")):
-        return JSONResponse({"ok": False, "erro": "Formato não suportado. Envie o arquivo .xls exportado pelo sistema."}, status_code=400)
+    if not file.filename.lower().endswith((".xls", ".xlsx", ".html", ".htm", ".csv")):
+        return JSONResponse({"ok": False, "erro": "Formato não suportado. Envie o arquivo .xls, .xlsx ou .csv exportado pelo sistema."}, status_code=400)
 
     content = await file.read()
     if len(content) > 50 * 1024 * 1024:
