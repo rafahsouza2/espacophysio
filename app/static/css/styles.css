@@ -515,6 +515,26 @@ input { border: 0; outline: none; background: transparent; width: 100%; font-siz
   min-width: 280px; max-width: 420px;
   margin: 0; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
 }
+/* ── Modal de confirmação de importação ── */
+#import-confirm-modal { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; }
+.import-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
+.import-modal-box {
+  position: relative; z-index: 1; padding: 32px 36px; border-radius: 18px;
+  max-width: 480px; width: 90%; box-shadow: 0 16px 48px rgba(0,0,0,0.25);
+}
+.import-modal-box h3 { margin: 0 0 12px; font-size: 1.15rem; }
+.import-modal-box p  { margin: 10px 0; font-size: 0.92rem; color: var(--text); }
+.import-modal-units  { margin: 10px 0 14px; padding-left: 20px; }
+.import-modal-units li { margin-bottom: 4px; font-size: 0.88rem; color: var(--muted); }
+.import-modal-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+.import-modal-actions button { flex: 1; min-width: 120px; padding: 10px 16px; border-radius: 10px; font-weight: 700; cursor: pointer; border: none; font-size: 0.88rem; }
+.btn-primary  { background: var(--accent); color: #fff; }
+.btn-primary:hover  { opacity: 0.9; }
+.btn-warning  { background: #e57c00; color: #fff; }
+.btn-warning:hover  { opacity: 0.9; }
+.btn-secondary { background: var(--glass-bg, rgba(120,120,120,0.15)); color: var(--text); border: 1px solid var(--line) !important; }
+.btn-secondary:hover { opacity: 0.8; }
+.import-modal-hint { font-size: 0.78rem !important; color: var(--muted) !important; margin-top: 16px !important; }
 .upload-import-card .datos-ok {
   display: none; align-items: center; justify-content: space-between; gap: 16px;
   padding: 14px 0; flex-wrap: wrap;

@@ -6,7 +6,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from app.auth.dependencies import require_auth, check_module_access
-from app.modules.bi.parser import parse_xls, save_parsed_result, load_saved, clear_saved, list_reports
+from app.modules.bi.parser import (parse_xls, save_parsed_result, merge_save_result,
+                                    rebuild_report_for_period, load_saved, clear_saved, list_reports)
 from app.modules.bi.config import get_bi_config, save_bi_config, recalculate_all_reports
 
 TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
@@ -747,22 +748,139 @@ async def bi_process_chunks(
             pass
 
     try:
-        data = await asyncio.to_thread(parse_xls, content, True)
+        data = await asyncio.to_thread(parse_xls, content, False)
     except ValueError as e:
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=422)
     except Exception as e:
         print("BI PROCESS ERROR:", repr(e))
         return JSONResponse({"ok": False, "erro": "Erro ao processar o arquivo. Verifique se é o export correto."}, status_code=500)
 
+    period_key     = data["period_key"]
+    detected_units = data.get("detected_units") or []
+
+    # Verifica se já existe dado para este período
+    existing = await asyncio.to_thread(
+        lambda: sb.table("bi_reports").select("period_key").eq("period_key", period_key).limit(1).execute().data
+    )
+
+    if not existing:
+        # Período novo — salva normalmente
+        try:
+            await asyncio.to_thread(save_parsed_result, data)
+        except Exception as e:
+            return JSONResponse({"ok": False, "erro": f"Erro ao salvar: {e}"}, status_code=500)
+        k = data["kpis"]
+        return JSONResponse({
+            "ok": True, "period_key": period_key,
+            "periodo": data["periodo"]["label"],
+            "linhas": data["total_registros"],
+            "finalizados": k["total_atendimentos"],
+            "producao": k["total_producao"],
+        })
+
+    # Período existe — verifica unidades sobrepostas
+    overlapping: list[str] = []
+    if detected_units:
+        rows = []
+        offset = 0
+        while True:
+            batch = (sb.table("bi_atendimentos")
+                     .select("unidade")
+                     .eq("period_key", period_key)
+                     .range(offset, offset + 999)
+                     .execute().data or [])
+            rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            offset += 1000
+        existing_units = {r.get("unidade") for r in rows if r.get("unidade")}
+        overlapping = [u for u in detected_units if u in existing_units]
+
+    if not overlapping:
+        # Unidades diferentes — mescla automaticamente
+        try:
+            await asyncio.to_thread(merge_save_result, data)
+        except Exception as e:
+            return JSONResponse({"ok": False, "erro": f"Erro ao mesclar: {e}"}, status_code=500)
+        k = data["kpis"]
+        return JSONResponse({
+            "ok": True, "period_key": period_key,
+            "periodo": data["periodo"]["label"],
+            "linhas": data["total_registros"],
+            "finalizados": k["total_atendimentos"],
+            "producao": k["total_producao"],
+            "merged": True,
+        })
+
+    # Unidades sobrepostas — pede confirmação
+    import json as _json
+    pending_id = str(_uuid.uuid4())
+    pending_path = f"pending/{pending_id}.json"
+    pending_bytes = _json.dumps(data, default=str).encode()
+    try:
+        await asyncio.to_thread(_storage_upload, sb, pending_path, pending_bytes)
+    except Exception as e:
+        return JSONResponse({"ok": False, "erro": f"Erro ao salvar dados temporários: {e}"}, status_code=500)
+
+    return JSONResponse({
+        "ok":              True,
+        "needs_confirm":   True,
+        "pending_id":      pending_id,
+        "period_key":      period_key,
+        "periodo":         data["periodo"]["label"],
+        "detected_units":  detected_units,
+        "overlapping_units": overlapping,
+    })
+
+
+@router.post("/bi/complete-import")
+async def bi_complete_import(
+    request:    Request,
+    pending_id: str  = Form(...),
+    action:     str  = Form(...),   # "merge" | "replace"
+    user=Depends(require_auth),
+):
+    """Finaliza importação pendente (sobreposição de unidades confirmada pelo usuário)."""
+    if isinstance(user, RedirectResponse):
+        return user
+    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
+    if role not in ("admin", "coordenacao"):
+        return JSONResponse({"ok": False, "erro": "Sem permissão."}, status_code=403)
+    if action not in ("merge", "replace"):
+        return JSONResponse({"ok": False, "erro": "Ação inválida."}, status_code=400)
+
+    import json as _json
+    from app.database import get_supabase_admin
+    sb = get_supabase_admin()
+
+    pending_path = f"pending/{pending_id}.json"
+    try:
+        raw = await asyncio.to_thread(lambda: sb.storage.from_(_BUCKET).download(pending_path))
+        data = _json.loads(raw)
+    except Exception as e:
+        return JSONResponse({"ok": False, "erro": f"Dados pendentes não encontrados: {e}"}, status_code=404)
+    finally:
+        try:
+            sb.storage.from_(_BUCKET).remove([pending_path])
+        except Exception:
+            pass
+
+    try:
+        if action == "merge":
+            await asyncio.to_thread(merge_save_result, data)
+        else:
+            await asyncio.to_thread(save_parsed_result, data)
+    except Exception as e:
+        return JSONResponse({"ok": False, "erro": f"Erro ao salvar: {e}"}, status_code=500)
+
     k = data["kpis"]
     return JSONResponse({
-        "ok":          True,
-        "period_key":  data["period_key"],
-        "periodo":     data["periodo"]["label"],
-        "linhas":      data["total_registros"],
+        "ok":        True,
+        "period_key": data["period_key"],
+        "periodo":   data["periodo"]["label"],
+        "linhas":    data["total_registros"],
         "finalizados": k["total_atendimentos"],
-        "producao":    k["total_producao"],
-        "save_error":  None,
+        "producao":  k["total_producao"],
     })
 
 

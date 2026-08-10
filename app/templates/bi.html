@@ -2823,7 +2823,6 @@ async function doUpload(file) {
   if (prog) { prog.style.display = 'block'; prog.className = 'upload-progress upload-toast'; prog.textContent = '⏳ Enviando arquivo...'; }
 
   try {
-    // Divide em chunks de 3 MB (abaixo do limite de 4,5 MB do Vercel)
     const CHUNK = 3 * 1024 * 1024;
     const total = Math.ceil(file.size / CHUNK) || 1;
     const uid   = crypto.randomUUID();
@@ -2842,7 +2841,6 @@ async function doUpload(file) {
       if (prog) prog.textContent = `⏳ Enviando… ${Math.round((i + 1) / total * 100)}%`;
     }
 
-    // Servidor monta, processa e salva
     if (prog) prog.textContent = '⏳ Processando arquivo...';
     const fd2 = new FormData();
     fd2.append('upload_id',    uid);
@@ -2851,18 +2849,69 @@ async function doUpload(file) {
     const r2   = await fetch('/bi/process-chunks', { method: 'POST', body: fd2 });
     const data = await r2.json();
 
-    if (data.ok) {
-      if (data.save_error) {
-        _err('Processado mas não salvo: ' + data.save_error);
-      } else {
-        if (prog) { prog.className = 'upload-progress upload-toast ok'; prog.textContent = '✅ ' + data.periodo + ' importado — ' + data.linhas + ' registros'; }
-        setTimeout(() => { location.href = '/bi?period=' + data.period_key; }, 1200);
-      }
-    } else {
-      _err(data.erro || 'Erro desconhecido.');
+    if (!data.ok) { _err(data.erro || 'Erro desconhecido.'); return; }
+
+    if (data.needs_confirm) {
+      if (prog) prog.style.display = 'none';
+      _showImportModal(data);
+      return;
     }
+
+    if (prog) { prog.className = 'upload-progress upload-toast ok'; prog.textContent = '✅ ' + data.periodo + ' importado' + (data.merged ? ' (mesclado)' : '') + ' — ' + data.linhas + ' registros'; }
+    setTimeout(() => { location.href = '/bi?period=' + data.period_key; }, 1200);
+
   } catch(e) {
     _err('Erro de conexão: ' + e.message);
+  }
+}
+
+function _showImportModal(data) {
+  const existing = document.getElementById('import-confirm-modal');
+  if (existing) existing.remove();
+
+  const ol = data.overlapping_units.map(u => `<li>${u}</li>`).join('');
+  const modal = document.createElement('div');
+  modal.id = 'import-confirm-modal';
+  modal.innerHTML = `
+    <div class="import-modal-backdrop"></div>
+    <div class="import-modal-box glass">
+      <h3>Dados duplicados detectados</h3>
+      <p>O arquivo importado contém dados do período <strong>${data.periodo}</strong> para unidades que já existem no banco:</p>
+      <ul class="import-modal-units">${ol}</ul>
+      <p>Como deseja prosseguir?</p>
+      <div class="import-modal-actions">
+        <button class="btn-secondary" onclick="_cancelImport()">Cancelar</button>
+        <button class="btn-warning"   onclick="_completeImport('${data.pending_id}','${data.period_key}','replace')">Substituir tudo</button>
+        <button class="btn-primary"   onclick="_completeImport('${data.pending_id}','${data.period_key}','merge')">Mesclar unidades</button>
+      </div>
+      <p class="import-modal-hint"><em>Mesclar</em> mantém as outras unidades e substitui apenas as listadas acima. <em>Substituir tudo</em> apaga todos os dados do período e importa somente este arquivo.</p>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function _cancelImport() {
+  const m = document.getElementById('import-confirm-modal');
+  if (m) m.remove();
+}
+
+async function _completeImport(pendingId, periodKey, action) {
+  _cancelImport();
+  const prog = document.getElementById('upload-progress');
+  if (prog) { prog.style.display = 'block'; prog.className = 'upload-progress upload-toast'; prog.textContent = '⏳ Salvando...'; }
+  try {
+    const fd = new FormData();
+    fd.append('pending_id', pendingId);
+    fd.append('action', action);
+    const r = await fetch('/bi/complete-import', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!d.ok) {
+      if (prog) { prog.className = 'upload-progress upload-toast err'; prog.textContent = '❌ ' + (d.erro || 'Erro ao salvar.'); }
+      return;
+    }
+    if (prog) { prog.className = 'upload-progress upload-toast ok'; prog.textContent = '✅ ' + d.periodo + ' importado — ' + d.linhas + ' registros'; }
+    setTimeout(() => { location.href = '/bi?period=' + d.period_key; }, 1200);
+  } catch(e) {
+    if (prog) { prog.className = 'upload-progress upload-toast err'; prog.textContent = '❌ Erro de conexão: ' + e.message; }
   }
 }
 

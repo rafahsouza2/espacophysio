@@ -724,6 +724,11 @@ def parse_xls(content: bytes, save: bool = True) -> dict:
                             if global_data["kpis"]["total_producao"] else 0.0,
             })
 
+    _detected_units: list[str] = (
+        sorted(df[col_unidade].dropna().astype(str).str.strip().unique().tolist())
+        if col_unidade else []
+    )
+
     result = {
         "atualizado_em":   datetime.now().isoformat(),
         "period_key":      period_key,
@@ -732,9 +737,10 @@ def parse_xls(content: bytes, save: bool = True) -> dict:
             "fim":    dt_max.strftime("%d/%m/%Y"),
             "label":  periodo_label,
         },
-        "lista_unidades":  lista_unidades,
+        "lista_unidades":   lista_unidades,
         "unidades_summary": unidades_summary,
-        "por_unidade":     por_unidade,
+        "por_unidade":      por_unidade,
+        "detected_units":   _detected_units,
         **global_data,
     }
 
@@ -775,6 +781,95 @@ def save_parsed_result(result: dict) -> None:
         DATA_PATH.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         print("BI DISK SAVE ERROR:", repr(e))
+
+
+def rebuild_report_for_period(period_key: str) -> None:
+    """Reconstrói bi_reports para um período lendo todos os bi_atendimentos do banco.
+    Usado após mesclagem de arquivos para que o relatório reflita todos os dados combinados.
+    """
+    from app.database import get_supabase_admin
+    sb = get_supabase_admin()
+
+    # 1. Lê todos os atendimentos do período
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        batch = (sb.table("bi_atendimentos")
+                   .select("data_atend,paciente,status,profissional,especialidade,"
+                           "convenio,unidade,valor,protocolo_lote,"
+                           "tipo_atendimento,data_nascimento,sexo,bairro,cidade")
+                   .eq("period_key", period_key)
+                   .range(offset, offset + 999)
+                   .execute().data or [])
+        rows.extend(batch)
+        if len(batch) < 1000:
+            break
+        offset += 1000
+
+    if not rows:
+        return
+
+    df = pd.DataFrame(rows)
+
+    # 2. Formata valor em BR ("150,00") para que o parser interprete corretamente
+    def _to_br(v) -> str:
+        try:
+            return f"{float(v):.2f}".replace(".", ",")
+        except (TypeError, ValueError):
+            return "0,00"
+
+    df["valor_br"] = df["valor"].apply(_to_br)
+
+    # 3. Monta CSV com nomes que parse_xls reconhece
+    rename = {
+        "data_atend":       "Data do Atendimento",
+        "paciente":         "Nome do Paciente",
+        "status":           "Status do Atendimento",
+        "profissional":     "Profissional",
+        "especialidade":    "Especialidade",
+        "convenio":         "Nome do Conv",
+        "unidade":          "Nome da Unidade",
+        "valor_br":         "Valor Cobrado",
+        "protocolo_lote":   "Protocolo Lote",
+        "tipo_atendimento": "Tipo de Atendimento",
+        "data_nascimento":  "Data Nascimento",
+        "sexo":             "Sexo",
+        "bairro":           "Bairro",
+        "cidade":           "Cidade",
+    }
+    available = {k: v for k, v in rename.items() if k in df.columns}
+    df_out = df.rename(columns=available)[[v for v in available.values()]]
+    csv_bytes = df_out.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+
+    # 4. Parseia o CSV sintético (status já classificado passa por _classify_status ok)
+    data = parse_xls(csv_bytes, save=False)
+
+    # 5. Salva apenas bi_reports (bi_atendimentos já está correto no banco)
+    _save_supabase(data)
+
+
+def merge_save_result(result: dict) -> None:
+    """Mescla resultado no banco: deleta apenas as unidades do arquivo, insere novas linhas
+    e reconstrói bi_reports a partir de TODOS os atendimentos do período."""
+    from app.database import get_supabase_admin
+    sb = get_supabase_admin()
+
+    rows          = result.pop("_pending_atend_rows", [])
+    period_key    = result.pop("_pending_period_key", result.get("period_key"))
+    detected_units = result.get("detected_units", [])
+
+    # 1. Deleta apenas as unidades presentes no arquivo
+    q = sb.table("bi_atendimentos").delete().eq("period_key", period_key)
+    if detected_units:
+        q = q.in_("unidade", detected_units)
+    q.execute()
+
+    # 2. Insere novas linhas
+    for i in range(0, len(rows), 500):
+        sb.table("bi_atendimentos").insert(rows[i:i + 500]).execute()
+
+    # 3. Reconstrói bi_reports a partir de todos os dados combinados
+    rebuild_report_for_period(period_key)
 
 
 # ── Carregar / limpar ─────────────────────────────────────────────────────────
