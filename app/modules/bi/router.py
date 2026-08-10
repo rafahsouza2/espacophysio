@@ -780,8 +780,10 @@ async def bi_process_chunks(
 
     # Período existe — verifica unidades sobrepostas
     overlapping: list[str] = []
+    existing_units: set[str] = set()
+
     if detected_units:
-        rows = []
+        db_rows: list[dict] = []
         offset = 0
         while True:
             batch = (sb.table("bi_atendimentos")
@@ -789,30 +791,32 @@ async def bi_process_chunks(
                      .eq("period_key", period_key)
                      .range(offset, offset + 999)
                      .execute().data or [])
-            rows.extend(batch)
+            db_rows.extend(batch)
             if len(batch) < 1000:
                 break
             offset += 1000
-        existing_units = {r.get("unidade") for r in rows if r.get("unidade")}
+        existing_units = {r.get("unidade") for r in db_rows if r.get("unidade")}
         overlapping = [u for u in detected_units if u in existing_units]
 
-    if not overlapping:
-        # Unidades diferentes — mescla automaticamente
-        try:
-            await asyncio.to_thread(merge_save_result, data)
-        except Exception as e:
-            return JSONResponse({"ok": False, "erro": f"Erro ao mesclar: {e}"}, status_code=500)
-        k = data["kpis"]
-        return JSONResponse({
-            "ok": True, "period_key": period_key,
-            "periodo": data["periodo"]["label"],
-            "linhas": data["total_registros"],
-            "finalizados": k["total_atendimentos"],
-            "producao": k["total_producao"],
-            "merged": True,
-        })
+        if not overlapping:
+            # Unidades diferentes e identificadas — mescla automática segura
+            try:
+                await asyncio.to_thread(merge_save_result, data)
+            except Exception as e:
+                return JSONResponse({"ok": False, "erro": f"Erro ao mesclar: {e}"}, status_code=500)
+            k = data["kpis"]
+            return JSONResponse({
+                "ok": True, "period_key": period_key,
+                "periodo": data["periodo"]["label"],
+                "linhas": data["total_registros"],
+                "finalizados": k["total_atendimentos"],
+                "producao": k["total_producao"],
+                "merged": True,
+            })
 
-    # Unidades sobrepostas — pede confirmação
+    # Pede confirmação:
+    # - se há sobreposição de unidades, OU
+    # - se não foi possível identificar unidades no arquivo (detected_units vazio)
     import json as _json
     pending_id = str(_uuid.uuid4())
     pending_path = f"pending/{pending_id}.json"
@@ -822,6 +826,8 @@ async def bi_process_chunks(
     except Exception as e:
         return JSONResponse({"ok": False, "erro": f"Erro ao salvar dados temporários: {e}"}, status_code=500)
 
+    sem_unidades = not detected_units
+
     return JSONResponse({
         "ok":              True,
         "needs_confirm":   True,
@@ -830,6 +836,8 @@ async def bi_process_chunks(
         "periodo":         data["periodo"]["label"],
         "detected_units":  detected_units,
         "overlapping_units": overlapping,
+        "existing_units":  sorted(existing_units),
+        "sem_unidades":    sem_unidades,
     })
 
 

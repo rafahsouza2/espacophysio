@@ -2869,22 +2869,39 @@ function _showImportModal(data) {
   const existing = document.getElementById('import-confirm-modal');
   if (existing) existing.remove();
 
-  const ol = data.overlapping_units.map(u => `<li>${u}</li>`).join('');
+  let titulo, descricao, hint, botaoMesclar;
+
+  if (data.sem_unidades) {
+    // Arquivo sem coluna de unidade — não é possível mesclar com segurança
+    titulo = 'Período já importado';
+    descricao = `O período <strong>${data.periodo}</strong> já possui dados no sistema, mas o arquivo não contém identificação de unidade — não é possível mesclar automaticamente.`;
+    hint = '<em>Substituir tudo</em> apaga todos os dados do período e importa apenas este arquivo. Cancele se quiser manter os dados atuais.';
+    botaoMesclar = '';
+  } else {
+    const ol = data.overlapping_units.map(u => `<li>${u}</li>`).join('');
+    const olExist = (data.existing_units || []).filter(u => !data.overlapping_units.includes(u)).map(u => `<li>${u}</li>`).join('');
+    titulo = 'Unidades duplicadas detectadas';
+    descricao = `O arquivo de <strong>${data.periodo}</strong> contém unidades que já existem no banco:
+      <ul class="import-modal-units">${ol}</ul>
+      ${olExist ? `<p style="margin:8px 0 0">Unidades que serão mantidas: <ul class="import-modal-units">${olExist}</ul></p>` : ''}`;
+    hint = '<em>Mesclar</em> mantém as demais unidades e substitui apenas as listadas acima. <em>Substituir tudo</em> apaga todos os dados do período e importa somente este arquivo.';
+    botaoMesclar = `<button class="btn-primary" onclick="_completeImport('${data.pending_id}','${data.period_key}','merge')">Mesclar unidades</button>`;
+  }
+
   const modal = document.createElement('div');
   modal.id = 'import-confirm-modal';
   modal.innerHTML = `
     <div class="import-modal-backdrop"></div>
     <div class="import-modal-box glass">
-      <h3>Dados duplicados detectados</h3>
-      <p>O arquivo importado contém dados do período <strong>${data.periodo}</strong> para unidades que já existem no banco:</p>
-      <ul class="import-modal-units">${ol}</ul>
+      <h3>${titulo}</h3>
+      <p>${descricao}</p>
       <p>Como deseja prosseguir?</p>
       <div class="import-modal-actions">
         <button class="btn-secondary" onclick="_cancelImport()">Cancelar</button>
         <button class="btn-warning"   onclick="_completeImport('${data.pending_id}','${data.period_key}','replace')">Substituir tudo</button>
-        <button class="btn-primary"   onclick="_completeImport('${data.pending_id}','${data.period_key}','merge')">Mesclar unidades</button>
+        ${botaoMesclar}
       </div>
-      <p class="import-modal-hint"><em>Mesclar</em> mantém as outras unidades e substitui apenas as listadas acima. <em>Substituir tudo</em> apaga todos os dados do período e importa somente este arquivo.</p>
+      <p class="import-modal-hint">${hint}</p>
     </div>`;
   document.body.appendChild(modal);
 }

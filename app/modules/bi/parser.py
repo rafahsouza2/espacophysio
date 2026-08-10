@@ -858,11 +858,11 @@ def merge_save_result(result: dict) -> None:
     period_key    = result.pop("_pending_period_key", result.get("period_key"))
     detected_units = result.get("detected_units", [])
 
+    if not detected_units:
+        raise ValueError("merge_save_result: detected_units vazio — use save_parsed_result para substituir o período completo.")
+
     # 1. Deleta apenas as unidades presentes no arquivo
-    q = sb.table("bi_atendimentos").delete().eq("period_key", period_key)
-    if detected_units:
-        q = q.in_("unidade", detected_units)
-    q.execute()
+    sb.table("bi_atendimentos").delete().eq("period_key", period_key).in_("unidade", detected_units).execute()
 
     # 2. Insere novas linhas
     for i in range(0, len(rows), 500):
