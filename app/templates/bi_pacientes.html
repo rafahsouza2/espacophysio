@@ -89,16 +89,19 @@
     <table class="bi-table bi-table-green pac-table" id="pac-table">
       <thead>
         <tr>
-          <th style="width:30%">Paciente</th>
+          <th style="min-width:180px">Paciente</th>
+          <th style="min-width:130px">CPF</th>
+          <th style="min-width:100px">Nascimento</th>
+          <th style="min-width:200px">Endereço</th>
           <th class="right" style="width:110px">Agendamentos</th>
           <th class="right" style="width:100px">Finalizados</th>
           <th class="right" style="width:80px">% Comp.</th>
-          <th style="width:40%">Tipo de Atendimento</th>
+          <th style="min-width:180px">Tipo de Atendimento</th>
           <th class="right" style="width:70px">Qtde</th>
         </tr>
       </thead>
       <tbody id="pac-tbody">
-        <tr><td colspan="6" class="pac-empty">Selecione o período e clique em Buscar.</td></tr>
+        <tr><td colspan="9" class="pac-empty">Selecione o período e clique em Buscar.</td></tr>
       </tbody>
     </table>
   </div>
@@ -267,11 +270,20 @@ function pacUrlParams(page) {
   return p.toString();
 }
 
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const p = iso.split('-');
+  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso;
+}
+
 function buildRows(pac) {
   const tipos  = pac.tipos || [];
   const pct    = pac.agendamentos > 0 ? Math.round(pac.finalizados / pac.agendamentos * 100) : 0;
   const pctClr = pct >= 70 ? 'var(--primary)' : pct >= 50 ? '#c47b00' : '#b83030';
   const n      = Math.max(tipos.length, 1);
+  const cpf    = pac.cpf || '—';
+  const nasc   = fmtDate(pac.data_nascimento);
+  const end    = pac.endereco || '—';
   let rows = '';
 
   tipos.forEach((t, i) => {
@@ -281,6 +293,9 @@ function buildRows(pac) {
     if (isFirst) {
       rows += `<tr class="${cls}">
         <td class="pac-nome" rowspan="${n}">${pac.nome}</td>
+        <td rowspan="${n}" style="font-size:.82rem;white-space:nowrap">${cpf}</td>
+        <td rowspan="${n}" style="font-size:.82rem;white-space:nowrap">${nasc}</td>
+        <td rowspan="${n}" style="font-size:.80rem">${end}</td>
         <td class="right" rowspan="${n}">${pac.agendamentos}</td>
         <td class="right" rowspan="${n}" style="font-weight:700;color:var(--primary)">${pac.finalizados}</td>
         <td class="right" rowspan="${n}" style="font-weight:600;color:${pctClr}">${pct}%</td>
@@ -298,13 +313,16 @@ function buildRows(pac) {
   if (!tipos.length) {
     rows += `<tr class="pac-first pac-last">
       <td class="pac-nome">${pac.nome}</td>
+      <td style="font-size:.82rem;white-space:nowrap">${cpf}</td>
+      <td style="font-size:.82rem;white-space:nowrap">${nasc}</td>
+      <td style="font-size:.80rem">${end}</td>
       <td class="right">${pac.agendamentos}</td>
       <td class="right" style="font-weight:700;color:var(--primary)">${pac.finalizados}</td>
       <td class="right" style="font-weight:600;color:${pctClr}">${pct}%</td>
       <td colspan="2" class="pac-no-tipo">Sem tipo registrado</td>
     </tr>`;
   }
-  rows += `<tr class="pac-sep"><td colspan="6"></td></tr>`;
+  rows += `<tr class="pac-sep"><td colspan="9"></td></tr>`;
   return rows;
 }
 
@@ -322,13 +340,13 @@ async function pacBuscar(page) {
   if (page < 1 || page > pacState.pages) return;
   pacState.page = page;
   const tbody = document.getElementById('pac-tbody');
-  tbody.innerHTML = `<tr><td colspan="6" class="pac-empty">Carregando…</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="9" class="pac-empty">Carregando…</td></tr>`;
 
   try {
     const res  = await fetch('/bi/pacientes/data?' + pacUrlParams(page));
     const data = await res.json();
     if (!data.ok) {
-      tbody.innerHTML = `<tr><td colspan="6" style="color:red;padding:20px">${data.erro}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" style="color:red;padding:20px">${data.erro}</td></tr>`;
       return;
     }
     pacState.pages = data.pages;
@@ -341,7 +359,7 @@ async function pacBuscar(page) {
 
     tbody.innerHTML = data.rows.length
       ? data.rows.map(buildRows).join('')
-      : `<tr><td colspan="6" class="pac-empty">Nenhum paciente encontrado.</td></tr>`;
+      : `<tr><td colspan="9" class="pac-empty">Nenhum paciente encontrado.</td></tr>`;
 
     const pg = document.getElementById('pac-pagination');
     pg.style.display = data.pages > 1 ? '' : 'none';
@@ -351,7 +369,7 @@ async function pacBuscar(page) {
     document.getElementById('pac-next').disabled = data.page >= data.pages;
 
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="6" style="color:red;padding:20px">Erro: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="color:red;padding:20px">Erro: ${e.message}</td></tr>`;
   }
 }
 
@@ -371,13 +389,19 @@ async function pacExportar(e) {
     pg++;
   } while (pg <= totalPgs);
 
-  const lines = ['Paciente;Agendamentos;Finalizados;% Comparecimento;Tipo de Atendimento;Quantidade'];
+  const lines = ['Paciente;CPF;Nascimento;Endereço;Agendamentos;Finalizados;% Comparecimento;Tipo de Atendimento;Quantidade'];
   for (const pac of allRows) {
-    const pct = pac.agendamentos > 0 ? Math.round(pac.finalizados / pac.agendamentos * 100) : 0;
+    const pct  = pac.agendamentos > 0 ? Math.round(pac.finalizados / pac.agendamentos * 100) : 0;
+    const cpf  = pac.cpf || '';
+    const nasc = fmtDate(pac.data_nascimento);
+    const end  = (pac.endereco || '').replace(/;/g, ',');
     if (pac.tipos && pac.tipos.length) {
       pac.tipos.forEach((t, i) => {
         lines.push([
           i === 0 ? pac.nome : '',
+          i === 0 ? cpf      : '',
+          i === 0 ? nasc     : '',
+          i === 0 ? end      : '',
           i === 0 ? pac.agendamentos : '',
           i === 0 ? pac.finalizados  : '',
           i === 0 ? pct + '%'        : '',
@@ -385,9 +409,9 @@ async function pacExportar(e) {
         ].join(';'));
       });
     } else {
-      lines.push(`${pac.nome};${pac.agendamentos};${pac.finalizados};${pct}%;;`);
+      lines.push(`${pac.nome};${cpf};${nasc};${end};${pac.agendamentos};${pac.finalizados};${pct}%;;`);
     }
-    lines.push(';;;;;');
+    lines.push(';;;;;;;;');
   }
 
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });

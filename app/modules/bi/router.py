@@ -614,6 +614,23 @@ async def bi_pacientes_data(
             p["tipos"] = [{"nome": k, "qtde": v}
                           for k, v in sorted(p["tipos"].items(), key=lambda x: -x[1])]
 
+        # Enriquece com CPF / data de nascimento / endereço da tabela pacientes
+        nomes_pagina = [p["nome"] for p in page_data]
+        if nomes_pagina:
+            try:
+                extra_rows = sb.table("pacientes").select(
+                    "nome,cpf,data_nascimento,observacoes"
+                ).in_("nome", nomes_pagina).execute().data or []
+                extra_map = {r["nome"]: r for r in extra_rows}
+                for p in page_data:
+                    ex = extra_map.get(p["nome"], {})
+                    p["cpf"]             = ex.get("cpf")
+                    p["data_nascimento"] = ex.get("data_nascimento")
+                    p["endereco"]        = ex.get("observacoes")
+            except Exception:
+                for p in page_data:
+                    p["cpf"] = p["data_nascimento"] = p["endereco"] = None
+
         return JSONResponse({
             "ok":    True,
             "rows":  page_data,
