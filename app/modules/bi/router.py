@@ -15,6 +15,34 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 router = APIRouter(tags=["bi"])
 
+# Cache de unidades (evita varrer bi_atendimentos inteiro a cada request de página)
+import time as _time
+_units_cache: dict = {"units": [], "ts": 0.0}
+_UNITS_TTL = 300  # 5 minutos
+
+
+def _get_cached_units() -> list[str]:
+    if _time.time() - _units_cache["ts"] < _UNITS_TTL and _units_cache["units"]:
+        return _units_cache["units"]
+    try:
+        from app.database import get_supabase_admin
+        sb = get_supabase_admin()
+        all_units: set[str] = set()
+        offset = 0
+        while True:
+            batch = sb.table("bi_atendimentos").select("unidade").range(offset, offset + 999).execute().data or []
+            for r in batch:
+                if r.get("unidade"):
+                    all_units.add(r["unidade"])
+            if len(batch) < 1000:
+                break
+            offset += 1000
+        _units_cache["units"] = sorted(all_units)
+        _units_cache["ts"] = _time.time()
+    except Exception:
+        pass
+    return _units_cache["units"]
+
 
 def _backfill_bi(d: dict) -> dict:
     """Adiciona campos novos a relatórios gerados pelo parser antigo."""
@@ -495,24 +523,7 @@ async def bi_pacientes(
         period_from = period_to = period
     reports = list_reports()
 
-    # Busca unidades disponíveis para o filtro (loop em lotes — limite Supabase = 1000)
-    lista_unidades: list[str] = []
-    try:
-        from app.database import get_supabase_admin
-        sb_u = get_supabase_admin()
-        all_units: set[str] = set()
-        u_offset = 0
-        while True:
-            batch = sb_u.table("bi_atendimentos").select("unidade").range(u_offset, u_offset + 999).execute().data or []
-            for r in batch:
-                if r.get("unidade"):
-                    all_units.add(r["unidade"])
-            if len(batch) < 1000:
-                break
-            u_offset += 1000
-        lista_unidades = sorted(all_units)
-    except Exception:
-        pass
+    lista_unidades = await asyncio.to_thread(_get_cached_units)
 
     return templates.TemplateResponse("bi_pacientes.html", {
         "request":        request,
