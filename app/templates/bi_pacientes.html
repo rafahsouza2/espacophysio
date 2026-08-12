@@ -30,7 +30,15 @@
 {# ── Filtros ── #}
 <div class="pac-filters">
 
-  {# Seletor de período: datas específicas #}
+  {# Seletor rápido de ano #}
+  <div class="pac-filter-group">
+    <label class="pac-label">Ano</label>
+    <select id="pac-year" class="pac-select" onchange="pacYearChanged()">
+      <option value="">— personalizado —</option>
+    </select>
+  </div>
+
+  {# Datas específicas #}
   <div class="pac-filter-group">
     <label class="pac-label">De</label>
     <input type="date" id="pac-date-from" class="pac-date-input" onchange="pacDateChanged()">
@@ -59,7 +67,6 @@
 <div id="pac-range-warn" style="display:none;margin:-4px 0 10px;
      padding:10px 14px;background:#fef3c7;border-radius:10px;
      font-size:.84rem;color:#92400e;font-weight:600">
-  ⚠ Período máximo: 3 meses. Ajuste as datas.
 </div>
 
 {# ── Cards de resumo ── #}
@@ -134,6 +141,11 @@
   background: var(--bg); color: var(--text); font-size: .84rem; outline: none; width: 100%;
 }
 .pac-input:focus { border-color: var(--primary); }
+.pac-select {
+  padding: 8px 12px; border-radius: 9px; border: 1.5px solid var(--line);
+  background: var(--bg); color: var(--text); font-size: .86rem; outline: none; cursor: pointer;
+}
+.pac-select:focus { border-color: var(--primary); }
 
 .pac-btn-primary {
   padding: 8px 22px; border-radius: 9px; border: none; cursor: pointer;
@@ -216,34 +228,41 @@ function updateTitle() {
   else             el.textContent = 'Selecione um período';
 }
 
-function diffMonths(df, dt) {
-  const a = new Date(df), b = new Date(dt);
-  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth())
-       + (b.getDate() >= a.getDate() ? 0 : -1);
+// Popula seletor de anos (ano atual -5 até atual)
+(function() {
+  const sel = document.getElementById('pac-year');
+  const cur = new Date().getFullYear();
+  for (let y = cur; y >= cur - 5; y--) {
+    const opt = document.createElement('option');
+    opt.value = y;
+    opt.textContent = y;
+    sel.appendChild(opt);
+  }
+})();
+
+function pacYearChanged() {
+  const yr = document.getElementById('pac-year').value;
+  if (!yr) return;
+  document.getElementById('pac-date-from').value = `${yr}-01-01`;
+  document.getElementById('pac-date-to').value   = `${yr}-12-31`;
+  document.getElementById('pac-range-warn').style.display = 'none';
+  updateTitle();
 }
 
 function pacDateChanged() {
   const df = document.getElementById('pac-date-from').value;
   const dt = document.getElementById('pac-date-to').value;
-  const warn = document.getElementById('pac-range-warn');
-
   updateTitle();
-
+  // Limpa seletor de ano se o usuário alterou as datas manualmente
+  document.getElementById('pac-year').value = '';
   // Auto-ajuste: se "até" < "de", iguala
   if (df && dt && dt < df) {
     document.getElementById('pac-date-to').value = df;
-    return;
   }
-  // Aviso se > 3 meses
-  if (df && dt && diffMonths(df, dt) > 3) {
-    warn.style.display = '';
-  } else {
-    warn.style.display = 'none';
-  }
+  document.getElementById('pac-range-warn').style.display = 'none';
 }
 
 function pacUnitChanged() {
-  // Só recarrega se já há uma busca ativa
   if (document.getElementById('pac-summary').style.display !== 'none') pacBuscar(1);
 }
 
@@ -252,7 +271,6 @@ function rangeValid() {
   const dt = document.getElementById('pac-date-to').value;
   if (!df || !dt) return false;
   if (dt < df) return false;
-  if (diffMonths(df, dt) > 3) return false;
   return true;
 }
 

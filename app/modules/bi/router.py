@@ -15,10 +15,12 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 router = APIRouter(tags=["bi"])
 
-# Cache de unidades (evita varrer bi_atendimentos inteiro a cada request de página)
+# Caches em memória
 import time as _time
-_units_cache: dict = {"units": [], "ts": 0.0}
-_UNITS_TTL = 300  # 5 minutos
+_units_cache: dict    = {"units": [], "ts": 0.0}
+_pacientes_cache: dict = {"data": {}, "ts": 0.0}
+_UNITS_TTL     = 300   # 5 minutos
+_PACIENTES_TTL = 600   # 10 minutos
 
 
 def _get_cached_units() -> list[str]:
@@ -42,6 +44,34 @@ def _get_cached_units() -> list[str]:
     except Exception:
         pass
     return _units_cache["units"]
+
+
+def _get_pacientes_map() -> dict:
+    """Carrega todos os pacientes em memória (nome → {cpf, data_nascimento, endereco})."""
+    if _time.time() - _pacientes_cache["ts"] < _PACIENTES_TTL and _pacientes_cache["data"]:
+        return _pacientes_cache["data"]
+    try:
+        from app.database import get_supabase_admin
+        sb = get_supabase_admin()
+        result = {}
+        offset = 0
+        while True:
+            batch = (sb.table("pacientes")
+                     .select("nome,cpf,data_nascimento,observacoes")
+                     .range(offset, offset + 999)
+                     .execute().data or [])
+            for r in batch:
+                if r.get("nome"):
+                    result[r["nome"]] = r
+            if len(batch) < 1000:
+                break
+            offset += 1000
+        _pacientes_cache["data"] = result
+        _pacientes_cache["ts"]   = _time.time()
+        print(f"[BI] Cache pacientes: {len(result)} registros carregados")
+    except Exception as e:
+        print("PACIENTES CACHE ERROR:", repr(e))
+    return _pacientes_cache["data"]
 
 
 def _backfill_bi(d: dict) -> dict:
@@ -625,22 +655,13 @@ async def bi_pacientes_data(
             p["tipos"] = [{"nome": k, "qtde": v}
                           for k, v in sorted(p["tipos"].items(), key=lambda x: -x[1])]
 
-        # Enriquece com CPF / data de nascimento / endereço da tabela pacientes
-        nomes_pagina = [p["nome"] for p in page_data]
-        if nomes_pagina:
-            try:
-                extra_rows = sb.table("pacientes").select(
-                    "nome,cpf,data_nascimento,observacoes"
-                ).in_("nome", nomes_pagina).execute().data or []
-                extra_map = {r["nome"]: r for r in extra_rows}
-                for p in page_data:
-                    ex = extra_map.get(p["nome"], {})
-                    p["cpf"]             = ex.get("cpf")
-                    p["data_nascimento"] = ex.get("data_nascimento")
-                    p["endereco"]        = ex.get("observacoes")
-            except Exception:
-                for p in page_data:
-                    p["cpf"] = p["data_nascimento"] = p["endereco"] = None
+        # Enriquece com CPF / data de nascimento / endereço via cache local
+        pac_extra = await asyncio.to_thread(_get_pacientes_map)
+        for p in page_data:
+            ex = pac_extra.get(p["nome"], {})
+            p["cpf"]             = ex.get("cpf")
+            p["data_nascimento"] = ex.get("data_nascimento")
+            p["endereco"]        = ex.get("observacoes")
 
         return JSONResponse({
             "ok":    True,
