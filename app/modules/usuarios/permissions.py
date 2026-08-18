@@ -20,8 +20,13 @@ def _load() -> dict:
 
 
 def _save(data: dict) -> None:
-    _FILE.parent.mkdir(parents=True, exist_ok=True)
-    _FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    try:
+        _FILE.parent.mkdir(parents=True, exist_ok=True)
+        _FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        # Vercel e outros ambientes serverless têm filesystem somente leitura;
+        # modulos_permitidos já é persistido no Supabase via profiles.modulos_permitidos.
+        pass
 
 
 def get_permission(user_id: str) -> str | None:
