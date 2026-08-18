@@ -1,3 +1,5 @@
+import asyncio
+import re
 from pathlib import Path
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -38,7 +40,10 @@ async def usuarios_lista(request: Request, user=Depends(require_auth)):
         return RedirectResponse(url="/bi", status_code=302)
 
     sb = get_supabase_admin()
-    resp = sb.table("profiles").select("*").neq("id", user["id"]).order("full_name").execute()
+    uid = user["id"]
+    resp = await asyncio.to_thread(
+        lambda: sb.table("profiles").select("*").neq("id", uid).order("full_name").execute()
+    )
     usuarios = resp.data or []
 
     return templates.TemplateResponse("usuarios.html", {
@@ -71,8 +76,6 @@ async def usuarios_criar(
     if role not in ROLE_LABELS:
         return JSONResponse({"ok": False, "erro": "Papel inválido."}, status_code=422)
 
-    # Valida nome de usuário: apenas letras, números, ponto, hífen e underscore
-    import re
     username = username.strip()
     if not username or not re.match(r'^[\w.\-]+$', username):
         return JSONResponse({"ok": False, "erro": "Nome de usuário inválido. Use letras, números, ponto ou hífen."}, status_code=422)
@@ -86,13 +89,14 @@ async def usuarios_criar(
     if role in ("admin", "coordenacao"):
         mods = None
 
+    payload = {
+        "email":         email_interno,
+        "password":      password,
+        "email_confirm": True,
+        "user_metadata": {"full_name": username, "modulos_permitidos": mods},
+    }
     try:
-        auth_resp = sb.auth.admin.create_user({
-            "email":          email_interno,
-            "password":       password,
-            "email_confirm":  True,
-            "user_metadata":  {"full_name": username, "modulos_permitidos": mods},
-        })
+        auth_resp = await asyncio.to_thread(lambda: sb.auth.admin.create_user(payload))
         new_id = auth_resp.user.id
     except Exception as e:
         msg = str(e)
@@ -111,13 +115,15 @@ async def usuarios_criar(
         profile_data["modulos_permitidos"] = mods
 
     try:
-        sb.table("profiles").upsert(profile_data).execute()
+        pd_copy = dict(profile_data)
+        await asyncio.to_thread(lambda: sb.table("profiles").upsert(pd_copy).execute())
     except Exception as e:
         err_msg = str(e)
         if "modulos_permitidos" in err_msg:
             profile_data.pop("modulos_permitidos", None)
+            pd2 = dict(profile_data)
             try:
-                sb.table("profiles").upsert(profile_data).execute()
+                await asyncio.to_thread(lambda: sb.table("profiles").upsert(pd2).execute())
             except Exception as e2:
                 return JSONResponse({"ok": False, "erro": f"Usuário criado mas erro no perfil: {e2}"}, status_code=500)
         else:
@@ -159,14 +165,17 @@ async def usuarios_editar(
     if mods is not None:
         update_data["modulos_permitidos"] = mods
 
+    uid = user_id
     try:
-        sb.table("profiles").update(update_data).eq("id", user_id).execute()
+        ud = dict(update_data)
+        await asyncio.to_thread(lambda: sb.table("profiles").update(ud).eq("id", uid).execute())
     except Exception as e:
         err_msg = str(e)
         if "modulos_permitidos" in err_msg:
             update_data.pop("modulos_permitidos", None)
+            ud2 = dict(update_data)
             try:
-                sb.table("profiles").update(update_data).eq("id", user_id).execute()
+                await asyncio.to_thread(lambda: sb.table("profiles").update(ud2).eq("id", uid).execute())
             except Exception as e2:
                 return JSONResponse({"ok": False, "erro": str(e2)}, status_code=500)
         else:
@@ -174,8 +183,9 @@ async def usuarios_editar(
 
     # Atualiza senha se necessário
     if nova_senha.strip():
+        senha = nova_senha.strip()
         try:
-            sb.auth.admin.update_user_by_id(user_id, {"password": nova_senha.strip()})
+            await asyncio.to_thread(lambda: sb.auth.admin.update_user_by_id(uid, {"password": senha}))
         except Exception as e:
             return JSONResponse({"ok": False, "erro": f"Perfil salvo, mas erro na senha: {e}"}, status_code=500)
 
@@ -199,13 +209,20 @@ async def usuarios_excluir(
         return JSONResponse({"ok": False, "erro": "Não é possível excluir o próprio usuário."}, status_code=400)
 
     sb = get_supabase_admin()
-    try:
-        sb.table("profiles").delete().eq("id", user_id).execute()
-        sb.auth.admin.delete_user(user_id)
-    except Exception as e:
-        return JSONResponse({"ok": False, "erro": str(e)}, status_code=500)
+    uid = user_id
 
-    delete_permission(user_id)
+    # Remove perfil primeiro (FK para auth.users), depois o usuário de autenticação
+    try:
+        await asyncio.to_thread(lambda: sb.table("profiles").delete().eq("id", uid).execute())
+    except Exception as e:
+        return JSONResponse({"ok": False, "erro": f"Erro ao remover perfil: {e}"}, status_code=500)
+
+    try:
+        await asyncio.to_thread(lambda: sb.auth.admin.delete_user(uid))
+    except Exception as e:
+        return JSONResponse({"ok": False, "erro": f"Perfil removido, mas erro ao excluir autenticação: {e}"}, status_code=500)
+
+    delete_permission(uid)
     return JSONResponse({"ok": True})
 
 
@@ -221,10 +238,13 @@ async def usuarios_toggle_ativo(
         return JSONResponse({"ok": False, "erro": "Sem permissão."}, status_code=403)
 
     sb = get_supabase_admin()
-    resp = sb.table("profiles").select("active").eq("id", user_id).limit(1).execute()
+    uid = user_id
+    resp = await asyncio.to_thread(
+        lambda: sb.table("profiles").select("active").eq("id", uid).limit(1).execute()
+    )
     if not resp.data:
         return JSONResponse({"ok": False, "erro": "Usuário não encontrado."}, status_code=404)
 
     novo = not resp.data[0]["active"]
-    sb.table("profiles").update({"active": novo}).eq("id", user_id).execute()
+    await asyncio.to_thread(lambda: sb.table("profiles").update({"active": novo}).eq("id", uid).execute())
     return JSONResponse({"ok": True, "active": novo})
