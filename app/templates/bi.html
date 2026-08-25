@@ -3,23 +3,27 @@
 
 {% block sidebar_extra %}
 <div class="bi-sidebar-tabs" id="bi-sidebar-tabs">
+  {% if bi_com_valores %}
   <button class="bi-sidebar-tab active" data-target="tab-dashboard">Dashboard</button>
   <button class="bi-sidebar-tab" data-target="tab-operacional">Operacional</button>
   <button class="bi-sidebar-tab" data-target="tab-diario">Diário</button>
   <button class="bi-sidebar-tab" data-target="tab-profissionais">Profissionais</button>
   <button class="bi-sidebar-tab" data-target="tab-convenios">Convênios</button>
   <button class="bi-sidebar-tab" data-target="tab-atendentes">Atendentes</button>
-  <button class="bi-sidebar-tab" data-target="tab-agendamentos">Agendamentos</button>
+  {% endif %}
+  <button class="bi-sidebar-tab {% if not bi_com_valores %}active{% endif %}" data-target="tab-agendamentos">Agendamentos</button>
+  {% if bi_com_valores %}
   <button class="bi-sidebar-tab" data-target="tab-historico">Histórico</button>
   <div class="bi-sidebar-sep"></div>
   <button class="bi-sidebar-tab" data-target="tab-listagem">Listagem</button>
+  {% endif %}
   <a class="bi-sidebar-tab" id="pac-link" href="/bi/pacientes">Analítico Pacientes</a>
   <div class="bi-sidebar-sep"></div>
   <button class="bi-sidebar-tab" data-target="tab-executivo">Executivo</button>
   <button class="bi-sidebar-tab" data-target="tab-demografico">Demográfico</button>
   <button class="bi-sidebar-tab" data-target="tab-especialidades">Especialidades</button>
   <button class="bi-sidebar-tab" data-target="tab-indicadores">Indicadores</button>
-  {% if lista_unidades %}
+  {% if bi_com_valores and lista_unidades %}
   <button class="bi-sidebar-tab" data-target="tab-unidades">Unidades</button>
   {% endif %}
   {% if user.role in ['admin', 'coordenacao'] %}
@@ -97,7 +101,7 @@ const PERIODO   = BI.periodo?.label || '';
 {# ═══════════════════════════════════════════════════
    ABA 1 — DASHBOARD
 ═══════════════════════════════════════════════════ #}
-<section id="tab-dashboard" class="bi-panel active">
+<section id="tab-dashboard" class="bi-panel{% if bi_com_valores %} active{% endif %}">
 
   {# Hero cards #}
   {% set k = bi_data.kpis %}
@@ -645,7 +649,7 @@ const PERIODO   = BI.periodo?.label || '';
 {# ═══════════════════════════════════════════════════
    ABA 7 — AGENDAMENTOS (CROSS MATRIX)
 ═══════════════════════════════════════════════════ #}
-<section id="tab-agendamentos" class="bi-panel">
+<section id="tab-agendamentos" class="bi-panel{% if not bi_com_valores %} active{% endif %}">
 
   {% set cd = bi_data.cross_data %}
   {% set stag = bi_data.status_agendamento %}

@@ -14,9 +14,10 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 router = APIRouter(tags=["usuarios"])
 
 MODULES = [
-    {"key": "bi",           "label": "B.I — Indicadores"},
-    {"key": "autorizacoes", "label": "Autorizações"},
-    {"key": "comunicados",  "label": "Comunicados"},
+    {"key": "bi",             "label": "B.I. — Com Valores"},
+    {"key": "bi_sem_valores", "label": "B.I. — Sem Valores"},
+    {"key": "autorizacoes",   "label": "Autorizações"},
+    {"key": "comunicados",    "label": "Comunicados"},
 ]
 
 ROLE_LABELS = {

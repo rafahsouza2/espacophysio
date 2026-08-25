@@ -15,6 +15,34 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 router = APIRouter(tags=["bi"])
 
+
+def _check_bi_access(user: dict):
+    """Permite acesso a qualquer usuário com 'bi' ou 'bi_sem_valores' nos módulos."""
+    role = user.get("role")
+    if role in ("admin", "coordenacao"):
+        return None
+    mods = user.get("modulos_permitidos") or ""
+    if not mods:
+        return None
+    allowed = [m.strip() for m in mods.split(",") if m.strip()]
+    if "bi" in allowed or "bi_sem_valores" in allowed:
+        return None
+    first = allowed[0] if allowed else "autorizacoes"
+    return RedirectResponse(url=f"/{first}", status_code=302)
+
+
+def _bi_com_valores(user: dict) -> bool:
+    """True se o usuário tem acesso às abas com valores financeiros (R$)."""
+    role = user.get("role")
+    if role in ("admin", "coordenacao"):
+        return True
+    mods = user.get("modulos_permitidos") or ""
+    if not mods:
+        return True
+    allowed = [m.strip() for m in mods.split(",") if m.strip()]
+    return "bi" in allowed
+
+
 # Caches em memória
 import time as _time
 _units_cache: dict    = {"units": [], "ts": 0.0}
@@ -165,7 +193,7 @@ async def bi_dashboard(
 ):
     if isinstance(user, RedirectResponse):
         return user
-    redir = check_module_access(user, "bi")
+    redir = _check_bi_access(user)
     if redir:
         return redir
 
@@ -262,6 +290,7 @@ async def bi_dashboard(
         "current_unit":    current_unit,
         "lista_unidades":  lista_unidades,
         "bi_cfg":          bi_cfg,
+        "bi_com_valores":  _bi_com_valores(user),
     })
 
 
@@ -546,7 +575,7 @@ async def bi_pacientes(
 ):
     if isinstance(user, RedirectResponse):
         return user
-    redir = check_module_access(user, "bi")
+    redir = _check_bi_access(user)
     if redir:
         return redir
     if period and not period_from:
