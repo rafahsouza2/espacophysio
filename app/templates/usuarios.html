@@ -127,12 +127,16 @@
           </select>
         </div>
         <div class="usr-field usr-field-full" id="mod-field-novo">
-          <label class="usr-label">Acesso a módulos <span style="font-weight:400;color:var(--muted)">(segure Ctrl para selecionar mais de um)</span></label>
-          <select class="usr-select usr-select-multi" name="modulos_permitidos" multiple size="4" id="mod-select-novo">
+          <label class="usr-label">Acesso a módulos</label>
+          <div class="mod-chips" id="mod-chips-novo">
             {% for m in modules %}
-            <option value="{{ m.key }}">{{ m.label }}</option>
+            <label class="mod-chip-label">
+              <input type="checkbox" class="mod-chip-cb" value="{{ m.key }}" hidden>
+              <span class="mod-chip-btn">{{ m.label }}</span>
+            </label>
             {% endfor %}
-          </select>
+          </div>
+          <input type="hidden" name="modulos_permitidos" id="mod-hidden-novo">
           <span class="usr-hint">Nenhum selecionado = acesso total do cargo</span>
         </div>
       </div>
@@ -179,12 +183,16 @@
           </select>
         </div>
         <div class="usr-field usr-field-full" id="mod-field-editar">
-          <label class="usr-label">Acesso a módulos <span style="font-weight:400;color:var(--muted)">(segure Ctrl para selecionar mais de um)</span></label>
-          <select class="usr-select usr-select-multi" name="modulos_permitidos" multiple size="4" id="edit-modulos">
+          <label class="usr-label">Acesso a módulos</label>
+          <div class="mod-chips" id="mod-chips-editar">
             {% for m in modules %}
-            <option value="{{ m.key }}">{{ m.label }}</option>
+            <label class="mod-chip-label">
+              <input type="checkbox" class="mod-chip-cb" value="{{ m.key }}" hidden>
+              <span class="mod-chip-btn">{{ m.label }}</span>
+            </label>
             {% endfor %}
-          </select>
+          </div>
+          <input type="hidden" name="modulos_permitidos" id="mod-hidden-editar">
           <span class="usr-hint">Nenhum selecionado = acesso total do cargo</span>
         </div>
         <div class="usr-field">
@@ -254,10 +262,12 @@
 .usr-label { font-size:.78rem;font-weight:600;color:var(--muted) }
 .usr-input,.usr-select { padding:9px 12px;border:1.5px solid var(--border,#e5e7eb);border-radius:9px;font-size:.875rem;outline:none;transition:border-color .15s;background:#fff;width:100%;box-sizing:border-box }
 .usr-input:focus,.usr-select:focus { border-color:var(--green,#2d6a2d) }
-.usr-select-multi { padding:4px;height:auto }
-.usr-select-multi option { padding:7px 10px;border-radius:6px;margin:2px 0;cursor:pointer }
-.usr-select-multi option:checked { background:var(--green,#2d6a2d);color:#fff }
-.usr-hint { font-size:.73rem;color:var(--muted);margin-top:2px }
+.usr-hint { font-size:.73rem;color:var(--muted);margin-top:4px }
+.mod-chips { display:flex;flex-wrap:wrap;gap:8px;margin-top:2px }
+.mod-chip-label { cursor:pointer }
+.mod-chip-btn { display:inline-block;padding:7px 14px;border-radius:99px;border:1.5px solid var(--border,#e5e7eb);font-size:.82rem;font-weight:500;background:#fff;color:var(--text,#111);transition:all .15s;user-select:none }
+.mod-chip-label:hover .mod-chip-btn { border-color:var(--green,#2d6a2d);color:var(--green,#2d6a2d) }
+.mod-chip-cb:checked + .mod-chip-btn { background:var(--green,#2d6a2d);border-color:var(--green,#2d6a2d);color:#fff }
 
 .usr-form-erro { margin:4px 24px 0;padding:9px 12px;background:#fef2f2;color:#b91c1c;border-radius:8px;font-size:.82rem }
 .usr-tag-interno { display:inline-block;background:#f0fdf4;color:#15803d;font-size:.72rem;font-weight:600;padding:2px 8px;border-radius:99px;border:1px solid #bbf7d0 }
@@ -269,14 +279,36 @@
 function openModal(id) { document.getElementById(id).style.display='flex' }
 function closeModal(id) { document.getElementById(id).style.display='none' }
 
+function _getModChips(prefix) {
+  const id = prefix === 'novo' ? 'mod-chips-novo' : 'mod-chips-editar';
+  return document.querySelectorAll('#' + id + ' .mod-chip-cb');
+}
+function _getModHidden(prefix) {
+  return document.getElementById('mod-hidden-' + prefix);
+}
+function _syncModHidden(prefix) {
+  const checked = Array.from(_getModChips(prefix))
+    .filter(cb => cb.checked).map(cb => cb.value).join(',');
+  _getModHidden(prefix).value = checked;
+}
+// Sincroniza hidden ao clicar em qualquer chip
+document.addEventListener('change', function(e) {
+  if (e.target.classList.contains('mod-chip-cb')) {
+    const prefix = e.target.closest('[id^="mod-chips-"]').id.replace('mod-chips-', '');
+    _syncModHidden(prefix);
+  }
+});
+
 function onRoleChange(sel, prefix) {
   const isAdmin = sel.value === 'admin' || sel.value === 'coordenacao';
   const field = document.getElementById('mod-field-' + prefix);
   if (field) {
     field.style.opacity = isAdmin ? '.4' : '1';
-    const ms = field.querySelector('select');
-    ms.disabled = isAdmin;
-    if (isAdmin) Array.from(ms.options).forEach(o => o.selected = false);
+    field.style.pointerEvents = isAdmin ? 'none' : '';
+    if (isAdmin) {
+      _getModChips(prefix).forEach(cb => cb.checked = false);
+      _syncModHidden(prefix);
+    }
   }
 }
 
@@ -286,10 +318,10 @@ function openEditFromEl(btn) {
   document.getElementById('edit-full-name').value = d.name;
   document.getElementById('edit-role').value      = d.role;
   document.getElementById('edit-ativo').value     = d.active === 'true' ? 'true' : 'false';
-  // Pré-seleciona múltiplos módulos
-  const sel = document.getElementById('edit-modulos');
+  // Pré-marca checkboxes dos módulos atribuídos
   const ativos = (d.modulos || '').split(',').map(s => s.trim()).filter(Boolean);
-  Array.from(sel.options).forEach(o => { o.selected = ativos.includes(o.value); });
+  _getModChips('editar').forEach(cb => { cb.checked = ativos.includes(cb.value); });
+  _syncModHidden('editar');
   document.querySelector('#form-editar [name="nova_senha"]').value = '';
   document.getElementById('form-editar-erro').style.display = 'none';
   // Exibe tipo de acesso: interno ou e-mail real
@@ -327,12 +359,8 @@ async function submitNovo(e) {
   btn.disabled = true; btn.textContent = 'Criando...';
   erro.style.display = 'none';
 
+  _syncModHidden('novo');
   const fd = new FormData(e.target);
-  // Converte múltiplas seleções em string separada por vírgula
-  const sel = document.getElementById('mod-select-novo');
-  const selecionados = Array.from(sel.selectedOptions).map(o => o.value).join(',');
-  fd.set('modulos_permitidos', selecionados);
-
   const r  = await fetch('/usuarios/criar', { method:'POST', body:fd });
   const d  = await r.json();
 
@@ -352,14 +380,10 @@ async function submitEditar(e) {
   btn.disabled = true; btn.textContent = 'Salvando...';
   erro.style.display = 'none';
 
+  _syncModHidden('editar');
   const fd     = new FormData(e.target);
   const userId = fd.get('user_id');
   fd.delete('user_id');
-  // Converte múltiplas seleções em string separada por vírgula
-  const sel = document.getElementById('edit-modulos');
-  const selecionados = Array.from(sel.selectedOptions).map(o => o.value).join(',');
-  fd.set('modulos_permitidos', selecionados);
-
   const r = await fetch(`/usuarios/${userId}/editar`, { method:'POST', body:fd });
   const d = await r.json();
 
