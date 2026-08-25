@@ -10,19 +10,19 @@
   <button class="bi-sidebar-tab" data-target="tab-profissionais">Profissionais</button>
   <button class="bi-sidebar-tab" data-target="tab-convenios">Convênios</button>
   <button class="bi-sidebar-tab" data-target="tab-atendentes">Atendentes</button>
-  {% endif %}
-  <button class="bi-sidebar-tab {% if not bi_com_valores %}active{% endif %}" data-target="tab-agendamentos">Agendamentos</button>
-  {% if bi_com_valores %}
+  <button class="bi-sidebar-tab" data-target="tab-agendamentos">Agendamentos</button>
   <button class="bi-sidebar-tab" data-target="tab-historico">Histórico</button>
   <div class="bi-sidebar-sep"></div>
   <button class="bi-sidebar-tab" data-target="tab-listagem">Listagem</button>
   {% endif %}
   <a class="bi-sidebar-tab" id="pac-link" href="/bi/pacientes">Analítico Pacientes</a>
   <div class="bi-sidebar-sep"></div>
-  <button class="bi-sidebar-tab" data-target="tab-executivo">Executivo</button>
+  <button class="bi-sidebar-tab {% if not bi_com_valores %}active{% endif %}" data-target="tab-executivo">Executivo</button>
   <button class="bi-sidebar-tab" data-target="tab-demografico">Demográfico</button>
   <button class="bi-sidebar-tab" data-target="tab-especialidades">Especialidades</button>
+  {% if bi_com_valores %}
   <button class="bi-sidebar-tab" data-target="tab-indicadores">Indicadores</button>
+  {% endif %}
   {% if bi_com_valores and lista_unidades %}
   <button class="bi-sidebar-tab" data-target="tab-unidades">Unidades</button>
   {% endif %}
@@ -649,7 +649,7 @@ const PERIODO   = BI.periodo?.label || '';
 {# ═══════════════════════════════════════════════════
    ABA 7 — AGENDAMENTOS (CROSS MATRIX)
 ═══════════════════════════════════════════════════ #}
-<section id="tab-agendamentos" class="bi-panel{% if not bi_com_valores %} active{% endif %}">
+<section id="tab-agendamentos" class="bi-panel">
 
   {% set cd = bi_data.cross_data %}
   {% set stag = bi_data.status_agendamento %}
@@ -1000,7 +1000,7 @@ const PERIODO   = BI.periodo?.label || '';
 {# ═══════════════════════════════════════════════════
    ABA — EXECUTIVO
 ═══════════════════════════════════════════════════ #}
-<section id="tab-executivo" class="bi-panel">
+<section id="tab-executivo" class="bi-panel{% if not bi_com_valores %} active{% endif %}">
 {% if bi_data %}
 {% set k = bi_data.kpis %}
 {% set tot_ag   = k.total_agendamentos if k.total_agendamentos else k.total_agendados %}
