@@ -32,7 +32,7 @@
           <a class="menu-link {% if active_menu == 'home' %}active{% endif %}" href="/home">
             <span class="menu-icon">🏠</span> Início
           </a>
-          {% if _all or 'bi' in _mods %}
+          {% if _all or 'bi' in _mods or 'bi_sem_valores' in _mods %}
           <a class="menu-link {% if active_menu == 'bi' %}active{% endif %}" href="/bi" id="menu-bi-link">
             <span class="menu-icon">📊</span> B.I — Indicadores
             {% if active_menu == 'bi' %}<span class="bi-arrow open" id="bi-arrow">›</span>{% endif %}
