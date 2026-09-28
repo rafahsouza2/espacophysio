@@ -717,18 +717,19 @@ async def bi_pacientes_data(
                           for k, v in sorted(p["tipos"].items(), key=lambda x: -x[1])]
             p["convenios"] = [k for k, _ in sorted(p["convenios"].items(), key=lambda x: -x[1])]
 
-        # CPF vem do iGut (nome idêntico); data de nascimento / endereço do cadastro local,
-        # que também serve de reserva para o CPF se a API não responder
-        from app.igut import cpfs_por_nome
-        cpfs, pac_extra = await asyncio.gather(
-            cpfs_por_nome([p["nome"] for p in page_data]),
+        # CPF, data de nascimento e endereço vêm do iGut (nome idêntico); o cadastro local
+        # serve de reserva campo a campo se a API não responder ou não tiver o dado
+        from app.igut import dados_por_nome
+        igut, pac_extra = await asyncio.gather(
+            dados_por_nome([p["nome"] for p in page_data]),
             asyncio.to_thread(_get_pacientes_map),
         )
         for p in page_data:
+            ig = igut.get(p["nome"], {})
             ex = pac_extra.get(p["nome"], {})
-            p["cpf"]             = cpfs.get(p["nome"]) or ex.get("cpf")
-            p["data_nascimento"] = ex.get("data_nascimento")
-            p["endereco"]        = ex.get("observacoes")
+            p["cpf"]             = ig.get("cpf")             or ex.get("cpf")
+            p["data_nascimento"] = ig.get("data_nascimento") or ex.get("data_nascimento")
+            p["endereco"]        = ig.get("endereco")        or ex.get("observacoes")
 
         return JSONResponse({
             "ok":    True,
