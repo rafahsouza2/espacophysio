@@ -664,13 +664,13 @@ async def bi_pacientes_data(
         has_tipo_col = True
         offset = 0
         while True:
-            cols = "paciente,especialidade,tipo_atendimento,status,unidade" if has_tipo_col \
-                   else "paciente,especialidade,status,unidade"
+            cols = "paciente,especialidade,tipo_atendimento,status,unidade,convenio" if has_tipo_col \
+                   else "paciente,especialidade,status,unidade,convenio"
             try:
                 res = _build_query(cols).range(offset, offset + 999).execute()
             except Exception:
                 has_tipo_col = False
-                res = _build_query("paciente,especialidade,status,unidade").range(offset, offset + 999).execute()
+                res = _build_query("paciente,especialidade,status,unidade,convenio").range(offset, offset + 999).execute()
             batch = res.data or []
             all_rows.extend(batch)
             if len(batch) < 1000:
@@ -690,9 +690,12 @@ async def bi_pacientes_data(
                 continue
             status = r.get("status") or ""
             tipo   = _tipo(r)
+            conv   = (r.get("convenio") or "").strip()
             if nome not in pac_map:
-                pac_map[nome] = {"nome": nome, "agendamentos": 0, "finalizados": 0, "tipos": {}}
+                pac_map[nome] = {"nome": nome, "agendamentos": 0, "finalizados": 0, "tipos": {}, "convenios": {}}
             pac_map[nome]["agendamentos"] += 1
+            if conv:
+                pac_map[nome]["convenios"][conv] = pac_map[nome]["convenios"].get(conv, 0) + 1
             if status == "realizado":
                 pac_map[nome]["finalizados"] += 1
                 pac_map[nome]["tipos"][tipo] = pac_map[nome]["tipos"].get(tipo, 0) + 1
@@ -708,16 +711,22 @@ async def bi_pacientes_data(
         start = (page - 1) * per_page
         page_data = [dict(p) for p in pacs[start:start + per_page]]
 
-        # Serializa tipos como lista ordenada
+        # Serializa tipos como lista ordenada; convênios do mais usado para o menos usado
         for p in page_data:
             p["tipos"] = [{"nome": k, "qtde": v}
                           for k, v in sorted(p["tipos"].items(), key=lambda x: -x[1])]
+            p["convenios"] = [k for k, _ in sorted(p["convenios"].items(), key=lambda x: -x[1])]
 
-        # Enriquece com CPF / data de nascimento / endereço via cache local
-        pac_extra = await asyncio.to_thread(_get_pacientes_map)
+        # CPF vem do iGut (nome idêntico); data de nascimento / endereço do cadastro local,
+        # que também serve de reserva para o CPF se a API não responder
+        from app.igut import cpfs_por_nome
+        cpfs, pac_extra = await asyncio.gather(
+            cpfs_por_nome([p["nome"] for p in page_data]),
+            asyncio.to_thread(_get_pacientes_map),
+        )
         for p in page_data:
             ex = pac_extra.get(p["nome"], {})
-            p["cpf"]             = ex.get("cpf")
+            p["cpf"]             = cpfs.get(p["nome"]) or ex.get("cpf")
             p["data_nascimento"] = ex.get("data_nascimento")
             p["endereco"]        = ex.get("observacoes")
 
