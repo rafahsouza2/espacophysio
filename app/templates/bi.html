@@ -59,10 +59,11 @@
     {% if reports %}
     <div class="period-range-wrap">
       <input type="date" class="filter-select" id="date-from"
-             value="{{ date_from }}" onchange="applyFilters()">
+             value="{{ date_from }}" onkeydown="if (event.key === 'Enter') applyFilters()">
       <span class="period-range-sep">até</span>
       <input type="date" class="filter-select" id="date-to"
-             value="{{ date_to }}" onchange="applyFilters()">
+             value="{{ date_to }}" onkeydown="if (event.key === 'Enter') applyFilters()">
+      <button type="button" class="btn-sm-outline" onclick="applyFilters()">Aplicar</button>
     </div>
     {% endif %}
     {% if lista_unidades %}
@@ -79,7 +80,13 @@
   </div>
 </header>
 
-{% if not bi_data %}
+{% if not bi_data and reports %}
+<div class="bi-empty">
+  <div class="bi-empty-icon">📊</div>
+  <h2>Sem dados no período</h2>
+  <p>Nenhum atendimento importado entre as datas selecionadas. Ajuste o período acima.</p>
+</div>
+{% elif not bi_data %}
 <div class="bi-empty">
   <div class="bi-empty-icon">📊</div>
   <h2>Nenhum relatório importado</h2>

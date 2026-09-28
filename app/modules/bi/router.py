@@ -180,6 +180,26 @@ def _backfill_bi(d: dict) -> dict:
     return d
 
 
+def _parse_date(s: str | None):
+    """AAAA-MM-DD → date (None se vazio ou inválido)."""
+    from datetime import date
+    try:
+        return date.fromisoformat(s) if s else None
+    except ValueError:
+        return None
+
+
+def _month_bounds(period_key: str | None):
+    """AAAA-MM → (primeiro dia, último dia) do mês, ou None se inválido."""
+    import calendar
+    from datetime import date
+    try:
+        y, m = int(period_key[:4]), int(period_key[5:7])
+        return date(y, m, 1), date(y, m, calendar.monthrange(y, m)[1])
+    except (TypeError, ValueError):
+        return None
+
+
 @router.get("/bi", response_class=HTMLResponse)
 async def bi_dashboard(
     request:     Request,
@@ -197,84 +217,93 @@ async def bi_dashboard(
     if redir:
         return redir
 
-    # Prioridade: date_from/date_to > period_from/period_to > period
-    if date_from and not period_from:
-        period_from = date_from[:7]
-    if date_to and not period_to:
-        period_to = date_to[:7]
-    if period and not period_from and not period_to:
-        period_from = period_to = period
+    # Intervalo pedido. Prioridade: date_from/date_to > period_from/period_to > period
+    d_from, d_to = _parse_date(date_from), _parse_date(date_to)
+    if not d_from and not d_to:
+        pf, pt = period_from or period, period_to or period
+        d_from = (_month_bounds(pf) or (None, None))[0]
+        d_to   = (_month_bounds(pt) or (None, None))[1]
+    # Só uma das datas informada → completa com o mês dela
+    if d_from and not d_to:
+        d_to = _month_bounds(d_from.strftime("%Y-%m"))[1]
+    if d_to and not d_from:
+        d_from = _month_bounds(d_to.strftime("%Y-%m"))[0]
+    if d_from and d_to and d_from > d_to:
+        d_from, d_to = d_to, d_from
 
-    from app.modules.bi.parser import load_saved_range
-    bi_data_raw = _backfill_bi(load_saved_range(period_from, period_to))
-    reports     = list_reports()
+    from app.modules.bi.parser import load_report_for_dates
+    reports = list_reports()
+    if d_from and d_to:
+        bi_data_raw = await asyncio.to_thread(load_report_for_dates, d_from.isoformat(), d_to.isoformat())
+    else:
+        # Sem filtro → relatório mais recente
+        bi_data_raw = await asyncio.to_thread(load_saved)
+        if reports:
+            d_from, d_to = _month_bounds(reports[0]["period_key"]) or (None, None)
+    bi_data_raw = _backfill_bi(bi_data_raw)
     bi_cfg      = get_bi_config()
 
     # Filtro de unidade: substitui os KPIs pelo subconjunto da unidade selecionada
     bi_data       = bi_data_raw
     current_unit  = None
-    lista_unidades: list[str] = []
-
-    if bi_data_raw:
-        lista_unidades = bi_data_raw.get("lista_unidades", [])
+    lista_unidades: list[str] = list(bi_data_raw.get("lista_unidades", [])) if bi_data_raw else []
 
     # Fallback: usa as unidades das metas já salvas para não esconder a seção de parâmetros
     metas_salvas = bi_cfg.get("metas_por_unidade", {})
     for k in metas_salvas:
         if k not in lista_unidades:
             lista_unidades.append(k)
-        if unit and unit in bi_data_raw.get("por_unidade", {}):
-            unit_data = bi_data_raw["por_unidade"][unit]
-            bi_data = {
-                **bi_data_raw,
-                **unit_data,
-                "periodo":          bi_data_raw["periodo"],
-                "period_key":       bi_data_raw["period_key"],
-                "lista_unidades":   lista_unidades,
-                "por_unidade":      {},
-                "unidades_summary": bi_data_raw.get("unidades_summary", []),
-            }
-            current_unit = unit
 
-            # Recalcula profissionais da unidade direto de bi_atendimentos (lista completa, sem cap)
-            from app.modules.bi.parser import _calc_profissionais_from_atendimentos
-            unit_profs = _calc_profissionais_from_atendimentos(
-                period_from or period_to or "", period_to or period_from or "", unit
-            )
-            if unit_profs:
-                bi_data["profissionais"] = unit_profs
+    if bi_data_raw and unit and unit in bi_data_raw.get("por_unidade", {}):
+        unit_data = bi_data_raw["por_unidade"][unit]
+        bi_data = {
+            **bi_data_raw,
+            **unit_data,
+            "periodo":          bi_data_raw["periodo"],
+            "period_key":       bi_data_raw["period_key"],
+            "lista_unidades":   lista_unidades,
+            "por_unidade":      {},
+            "unidades_summary": bi_data_raw.get("unidades_summary", []),
+        }
+        current_unit = unit
 
-            # Aplica meta específica da unidade (se configurada)
-            metas_un = bi_cfg.get("metas_por_unidade", {})
-            if unit in metas_un and metas_un[unit] > 0:
-                meta_u   = float(metas_un[unit])
-                dias_u   = float(bi_cfg.get("dias_uteis_mes", 22))
-                prod_u   = float(bi_data.get("kpis", {}).get("total_producao", 0))
-                meta_dia = meta_u / dias_u if dias_u else meta_u
-                bi_data["meta"]         = meta_u
-                bi_data["meta_diaria"]  = round(meta_dia, 2)
-                bi_data["alcance_meta"] = round(prod_u / meta_u * 100, 1) if meta_u else 0.0
-                evo  = bi_data.get("evolucao_diaria", {})
-                prods = evo.get("prod", [])
-                if prods:
-                    evo["meta_pct"] = [round(p / meta_dia * 100, 1) if meta_dia else 0.0 for p in prods]
+        # Recalcula profissionais da unidade direto de bi_atendimentos (lista completa, sem cap)
+        from app.modules.bi.parser import _calc_profissionais_from_atendimentos
+        unit_profs = await asyncio.to_thread(
+            _calc_profissionais_from_atendimentos,
+            unit=unit,
+            date_from=d_from.isoformat() if d_from else None,
+            date_to=d_to.isoformat() if d_to else None,
+        )
+        if unit_profs:
+            bi_data["profissionais"] = unit_profs
 
-    # Deriva current_period para compat com listagem/exports que ainda usam period=
-    current_period = period_from if period_from == period_to else None
+        # Aplica meta específica da unidade (se configurada)
+        metas_un = bi_cfg.get("metas_por_unidade", {})
+        if unit in metas_un and metas_un[unit] > 0:
+            meta_u   = float(metas_un[unit])
+            dias_u   = float(bi_cfg.get("dias_uteis_mes", 22))
+            prod_u   = float(bi_data.get("kpis", {}).get("total_producao", 0))
+            meta_dia = meta_u / dias_u if dias_u else meta_u
+            bi_data["meta"]         = meta_u
+            bi_data["meta_diaria"]  = round(meta_dia, 2)
+            bi_data["alcance_meta"] = round(prod_u / meta_u * 100, 1) if meta_u else 0.0
+            evo  = bi_data.get("evolucao_diaria", {})
+            prods = evo.get("prod", [])
+            if prods:
+                evo["meta_pct"] = [round(p / meta_dia * 100, 1) if meta_dia else 0.0 for p in prods]
 
-    # Computa date_from/date_to para inputs de data no template
-    import calendar as _cal
-    if not date_from and period_from:
-        date_from = period_from + "-01"
-    if not date_to and period_to:
-        y, m = int(period_to[:4]), int(period_to[5:7])
-        date_to = f"{period_to}-{_cal.monthrange(y, m)[1]:02d}"
-    # Fallback: usa o período mais recente disponível
-    if not date_from and not date_to and reports:
-        latest = reports[0]["period_key"]
-        date_from = latest + "-01"
-        y, m = int(latest[:4]), int(latest[5:7])
-        date_to = f"{latest}-{_cal.monthrange(y, m)[1]:02d}"
+    # Deriva current_period (mês inteiro único) para compat com listagem/exports que ainda usam period=
+    current_period = None
+    if d_from and d_to:
+        mes = d_from.strftime("%Y-%m")
+        if (d_from, d_to) == _month_bounds(mes):
+            current_period = mes
+
+    date_from = d_from.isoformat() if d_from else ""
+    date_to   = d_to.isoformat()   if d_to   else ""
+    period_from = date_from[:7]
+    period_to   = date_to[:7]
 
     return templates.TemplateResponse("bi.html", {
         "request":         request,

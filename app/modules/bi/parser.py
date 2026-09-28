@@ -130,10 +130,16 @@ def _insert_atend_rows(rows: list[dict], period_key: str) -> None:
         return repr(e)
 
 
+def _strip_pending(data: dict) -> dict:
+    """Remove as chaves internas _pending_* (linhas brutas) que não fazem parte do relatório."""
+    return {k: v for k, v in data.items() if not k.startswith("_pending")}
+
+
 def _save_supabase(data: dict) -> str | None:
     try:
         from app.database import get_supabase_admin
         sb = get_supabase_admin()
+        data = _strip_pending(data)
         k  = data["kpis"]
         # Apaga o registro antigo antes de inserir para garantir dados frescos
         sb.table("bi_reports").delete().eq("period_key", data["period_key"]).execute()
@@ -162,7 +168,7 @@ def _load_supabase(period_key: str | None = None) -> dict | None:
         q  = q.eq("period_key", period_key) if period_key else q.order("period_key", desc=True).limit(1)
         res = q.execute()
         if res.data:
-            return res.data[0]["data"]
+            return _strip_pending(res.data[0]["data"])
     except Exception as e:
         print("BI SUPABASE LOAD ERROR:", repr(e))
     return None
@@ -237,12 +243,6 @@ MESES_PT   = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov",
 # ── Parser principal ───────────────────────────────────────────────────────────
 def parse_xls(content: bytes, save: bool = True) -> dict:
     """Lê XLS (HTML disfarçado) ou XLSX real e retorna dict com KPIs globais e por unidade."""
-    from app.modules.bi.config import get_bi_config
-    _cfg        = get_bi_config()
-    meta        = float(_cfg["meta_mensal"])
-    dias_uteis  = float(_cfg["dias_uteis_mes"])
-    meta_diaria = meta / dias_uteis
-
     # 1. Detectar formato e ler
     buf     = io.BytesIO(content)
     # PK = ZIP magic → XLSX; "<" como primeiro char não-espaço → HTML table; resto → CSV
@@ -273,6 +273,17 @@ def parse_xls(content: bytes, save: bool = True) -> dict:
             raise ValueError(f"Não foi possível ler o arquivo: {e}")
 
     df.columns = [str(c).strip() for c in df.columns]
+    return _report_from_df(df, save=save)
+
+
+def _report_from_df(df: pd.DataFrame, save: bool = True, build_rows: bool = True) -> dict:
+    """Calcula o relatório a partir do DataFrame com as colunas do export do iGut.
+    build_rows=False dispensa as linhas para bi_atendimentos (quando elas já estão no banco)."""
+    from app.modules.bi.config import get_bi_config
+    _cfg        = get_bi_config()
+    meta        = float(_cfg["meta_mensal"])
+    dias_uteis  = float(_cfg["dias_uteis_mes"])
+    meta_diaria = meta / dias_uteis
 
     # 2. Detectar colunas
     def _col(keywords: list[str]) -> str | None:
@@ -756,10 +767,11 @@ def parse_xls(content: bytes, save: bool = True) -> dict:
             print("BI DISK SAVE ERROR:", repr(e))
     else:
         # Guarda linhas pré-computadas para salvar em background (sem chamar o banco agora)
-        result["_pending_atend_rows"] = _build_atend_rows(
-            df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod
-        )
-        result["_pending_period_key"] = period_key
+        if build_rows:
+            result["_pending_atend_rows"] = _build_atend_rows(
+                df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod
+            )
+            result["_pending_period_key"] = period_key
         result["_save_error"] = None
 
     return result
@@ -783,33 +795,57 @@ def save_parsed_result(result: dict) -> None:
         print("BI DISK SAVE ERROR:", repr(e))
 
 
-def rebuild_report_for_period(period_key: str) -> None:
-    """Reconstrói bi_reports para um período lendo todos os bi_atendimentos do banco.
-    Usado após mesclagem de arquivos para que o relatório reflita todos os dados combinados.
-    """
+_ATEND_COLS = ("data_atend,paciente,status,profissional,especialidade,"
+               "convenio,unidade,valor,protocolo_lote,"
+               "tipo_atendimento,data_nascimento,sexo,bairro,cidade")
+
+
+def _fetch_atendimentos(cols: str, *, date_from: str | None = None, date_to: str | None = None,
+                        period_from: str | None = None, period_to: str | None = None,
+                        unit: str | None = None) -> list[dict]:
+    """Busca linhas de bi_atendimentos em páginas de 1000 (limite do Supabase), em paralelo."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
     from app.database import get_supabase_admin
-    sb = get_supabase_admin()
 
-    # 1. Lê todos os atendimentos do período
-    rows: list[dict] = []
-    offset = 0
-    while True:
-        batch = (sb.table("bi_atendimentos")
-                   .select("data_atend,paciente,status,profissional,especialidade,"
-                           "convenio,unidade,valor,protocolo_lote,"
-                           "tipo_atendimento,data_nascimento,sexo,bairro,cidade")
-                   .eq("period_key", period_key)
-                   .range(offset, offset + 999)
-                   .execute().data or [])
-        rows.extend(batch)
-        if len(batch) < 1000:
-            break
-        offset += 1000
+    def _query(sb, select_cols: str, **kw):
+        q = sb.table("bi_atendimentos").select(select_cols, **kw)
+        if date_from:   q = q.gte("data_atend", date_from)
+        if date_to:     q = q.lte("data_atend", date_to)
+        if period_from: q = q.gte("period_key", period_from)
+        if period_to:   q = q.lte("period_key", period_to)
+        if unit:        q = q.eq("unidade", unit)
+        return q
 
+    total = _query(get_supabase_admin(), "id", count="exact").limit(1).execute().count or 0
+
+    # Um cliente por thread: a conexão HTTP/2 do cliente não aguenta uso simultâneo entre threads
+    local = threading.local()
+
+    def _page(offset: int) -> list[dict]:
+        if not hasattr(local, "sb"):
+            local.sb = get_supabase_admin()
+        return _query(local.sb, cols).order("id").range(offset, offset + 999).execute().data or []
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        pages = list(ex.map(_page, range(0, total, 1000)))
+    return [r for page in pages for r in page]
+
+
+def _report_from_rows(rows: list[dict]) -> dict | None:
+    """Monta o relatório a partir de linhas de bi_atendimentos (mesmo cálculo do upload).
+    Status do agendamento e agendador não são gravados em bi_atendimentos, então os
+    indicadores que dependem deles ficam zerados."""
     if not rows:
-        return
+        return None
 
     df = pd.DataFrame(rows)
+
+    # 1. Datas vêm em ISO (AAAA-MM-DD): converte aqui, pois o parser lê com dayfirst=True
+    #    e inverteria dia/mês (ou descartaria a data) de strings ISO
+    for c in ("data_atend", "data_nascimento"):
+        if c in df.columns:
+            df[c] = pd.to_datetime(df[c], format="ISO8601", errors="coerce")
 
     # 2. Formata valor em BR ("150,00") para que o parser interprete corretamente
     def _to_br(v) -> str:
@@ -820,7 +856,7 @@ def rebuild_report_for_period(period_key: str) -> None:
 
     df["valor_br"] = df["valor"].apply(_to_br)
 
-    # 3. Monta CSV com nomes que parse_xls reconhece
+    # 3. Renomeia para os nomes de coluna que o parser reconhece
     rename = {
         "data_atend":       "Data do Atendimento",
         "paciente":         "Nome do Paciente",
@@ -839,12 +875,27 @@ def rebuild_report_for_period(period_key: str) -> None:
     }
     available = {k: v for k, v in rename.items() if k in df.columns}
     df_out = df.rename(columns=available)[[v for v in available.values()]]
-    csv_bytes = df_out.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
-    # 4. Parseia o CSV sintético (status já classificado passa por _classify_status ok)
-    data = parse_xls(csv_bytes, save=False)
+    # 4. Calcula (status já classificado passa por _classify_status ok)
+    rep = _report_from_df(df_out, save=False, build_rows=False)
 
-    # 5. Salva apenas bi_reports (bi_atendimentos já está correto no banco)
+    # Sem os status originais do iGut, o cruzamento agendamento × atendimento não se aplica
+    for agg in (rep, *rep.get("por_unidade", {}).values()):
+        agg["status_atendimento"] = {}
+        agg["cross_data"] = {"labels_ag": [], "labels_at": [], "matrix": [], "totals_ag": [], "totals_at": []}
+    return rep
+
+
+def rebuild_report_for_period(period_key: str) -> None:
+    """Reconstrói bi_reports para um período lendo todos os bi_atendimentos do banco.
+    Usado após mesclagem de arquivos para que o relatório reflita todos os dados combinados.
+    """
+    data = _report_from_rows(_fetch_atendimentos(_ATEND_COLS, period_from=period_key,
+                                                 period_to=period_key))
+    if not data:
+        return
+
+    # Salva apenas bi_reports (bi_atendimentos já está correto no banco)
     _save_supabase(data)
 
 
@@ -874,30 +925,18 @@ def merge_save_result(result: dict) -> None:
 
 # ── Carregar / limpar ─────────────────────────────────────────────────────────
 
-def _calc_profissionais_from_atendimentos(period_from: str, period_to: str,
-                                           unit: str | None = None) -> list[dict]:
-    """Recalcula lista completa de profissionais direto da bi_atendimentos (sem limite de 15)."""
+def _calc_profissionais_from_atendimentos(period_from: str | None = None, period_to: str | None = None,
+                                           unit: str | None = None,
+                                           date_from: str | None = None,
+                                           date_to: str | None = None) -> list[dict]:
+    """Recalcula lista completa de profissionais direto da bi_atendimentos (sem limite de 15).
+    Com date_from/date_to filtra pela data do atendimento em vez do period_key."""
     try:
-        from app.database import get_supabase_admin
-        sb = get_supabase_admin()
-        # Busca em lotes (Supabase limita 1000 linhas por request)
-        all_rows: list[dict] = []
-        offset = 0
-        while True:
-            q = (
-                sb.table("bi_atendimentos")
-                  .select("profissional,status,valor,faturado")
-                  .gte("period_key", period_from)
-                  .lte("period_key", period_to)
-            )
-            if unit:
-                q = q.eq("unidade", unit)
-            res = q.range(offset, offset + 999).execute()
-            batch = res.data or []
-            all_rows.extend(batch)
-            if len(batch) < 1000:
-                break
-            offset += 1000
+        all_rows = _fetch_atendimentos(
+            "profissional,status,valor,faturado",
+            date_from=date_from, date_to=date_to,
+            period_from=period_from, period_to=period_to, unit=unit,
+        )
 
         if not all_rows:
             return []
@@ -959,237 +998,274 @@ def load_saved(period_key: str | None = None) -> dict | None:
     return None
 
 
+def _sum_dicts(dicts: list[dict | None]) -> dict:
+    out: dict = {}
+    for d in dicts:
+        for k, v in (d or {}).items():
+            if isinstance(v, (int, float)):
+                out[k] = out.get(k, 0) + v
+    return out
+
+
+def _merge_by_key(lists: list[list[dict] | None], key: str, fields: tuple[str, ...]) -> dict[str, dict]:
+    """Soma `fields` dos itens que têm o mesmo `key` em várias listas."""
+    out: dict[str, dict] = {}
+    for items in lists:
+        for it in items or []:
+            nome = it.get(key)
+            if nome is None:
+                continue
+            if nome not in out:
+                out[nome] = {**it, **{f: 0 for f in fields}}
+            for f in fields:
+                out[nome][f] += it.get(f) or 0
+    return out
+
+
+def _merge_aggregates(parts: list[dict]) -> dict:
+    """Mescla saídas de _aggregate (global ou de uma unidade) de períodos disjuntos,
+    em ordem cronológica. Pacientes únicos são somados entre as partes (aproximação:
+    não dá para deduplicar pacientes entre relatórios já agregados)."""
+    last        = parts[-1]
+    meta        = float(last.get("meta") or META)
+    meta_diaria = float(last.get("meta_diaria") or META_DIARIA)
+
+    # ── KPIs: soma tudo e recalcula as taxas ──────────────────────────────
+    ks = [p.get("kpis", {}) for p in parts]
+    k  = {key: (round(v, 2) if isinstance(v, float) else v) for key, v in _sum_dicts(ks).items()}
+    prod  = k.get("total_producao", 0.0)
+    atend = k.get("total_atendimentos", 0)
+    agend = k.get("total_agendados", 0)
+    fat   = k.get("total_faturamento", 0.0)
+    pacs  = k.get("total_pacientes", 0)
+    k["taxa_atendimento"] = round(atend / agend * 100, 2) if agend else 0.0
+    k["taxa_faltas"]      = round(k.get("total_faltas", 0) / agend * 100, 2) if agend else 0.0
+    k["ticket_medio"]     = round(prod / atend, 2) if atend else 0.0
+    k["alcance_meta"]     = round(prod / meta * 100, 1) if meta else 0.0
+    k["pct_faturado"]     = round(fat / prod * 100, 1) if prod else 0.0
+    k["a_faturar"]        = max(0.0, round(prod - fat, 2))
+    k["conv_pct"]         = round(k.get("conv_producao", 0) / prod * 100, 1) if prod else 0.0
+    k["part_pct"]         = round(k.get("part_producao", 0) / prod * 100, 1) if prod else 0.0
+    k["pct_acima_60"]     = round(k.get("total_acima_60", 0) / pacs * 100, 1) if pacs else 0.0
+    k["pct_acima_80"]     = round(k.get("total_acima_80", 0) / pacs * 100, 1) if pacs else 0.0
+    idades = [(kp.get("idade_media") or 0, kp.get("total_pacientes") or 0) for kp in ks]
+    peso   = sum(w for i, w in idades if i)
+    k["idade_media"] = round(sum(i * w for i, w in idades if i) / peso, 1) if peso else 0.0
+
+    # ── Evolução diária (dias concatenados, acumulado recalculado) ────────
+    evo: dict = {"labels": [], "atendimentos": [], "faltas": [], "prod": [], "acum": [], "meta_pct": []}
+    for p in parts:
+        e = p.get("evolucao_diaria", {})
+        n = len(e.get("labels", []))
+        evo["labels"].extend(e.get("labels", []))
+        for f, vals in (("atendimentos", e.get("atendimentos", e.get("atend", []))),
+                        ("faltas",   e.get("faltas", [])),
+                        ("prod",     e.get("prod", [])),
+                        ("meta_pct", e.get("meta_pct", []))):
+            vals = list(vals)[:n]
+            evo[f].extend(vals + [0] * (n - len(vals)))
+    acum = 0.0
+    for v in evo["prod"]:
+        acum = round(acum + v, 2)
+        evo["acum"].append(acum)
+
+    dias   = sum(p.get("dias") or len(p.get("evolucao_diaria", {}).get("labels", [])) for p in parts)
+    melhor = max(parts, key=lambda p: p.get("melhor_dia_prod") or 0)
+
+    # ── Profissionais ─────────────────────────────────────────────────────
+    profs = _merge_by_key([p.get("profissionais") for p in parts], "nome",
+                          ("qtde", "total", "final", "marcado", "prod", "faturado",
+                           "desmarcados", "faltas_ag", "reagendados"))
+    for pr in profs.values():
+        pr["prod"]         = round(pr["prod"], 2)
+        pr["faturado"]     = round(pr["faturado"], 2)
+        pr["taxa_final"]   = round(pr["final"] / pr["total"] * 100, 1) if pr["total"] else 0.0
+        pr["a_faturar"]    = max(0.0, round(pr["prod"] - pr["faturado"], 2))
+        pr["pct_faturado"] = round(pr["faturado"] / pr["prod"] * 100, 1) if pr["prod"] else 0.0
+    profissionais = sorted(profs.values(), key=lambda x: x["prod"] if x["prod"] > 0 else x["final"],
+                           reverse=True)
+
+    # ── Especialidades ────────────────────────────────────────────────────
+    esps = _merge_by_key([p.get("especialidades") for p in parts], "cat",
+                         ("agendados", "realizados", "faltas", "prod"))
+    for es in esps.values():
+        ag = es["agendados"]
+        es["prod"]        = round(es["prod"], 2)
+        es["taxa_atend"]  = round(es["realizados"] / ag * 100, 2) if ag else 0.0
+        es["taxa_faltas"] = round(es["faltas"] / ag * 100, 2) if ag else 0.0
+    especialidades = sorted(esps.values(), key=lambda x: -x["realizados"])
+
+    # ── Convênios e tipos ─────────────────────────────────────────────────
+    convs = _merge_by_key([p.get("convenios") for p in parts], "nome",
+                          ("qtde", "final", "producao", "faturado"))
+    for c in convs.values():
+        c["producao"]     = round(c["producao"], 2)
+        c["faturado"]     = round(c["faturado"], 2)
+        c["pct"]          = round(c["producao"] / prod * 100, 1) if prod else 0.0
+        c["ticket"]       = round(c["producao"] / c["qtde"], 2) if c["qtde"] else 0.0
+        c["a_faturar"]    = max(0.0, round(c["producao"] - c["faturado"], 2))
+        c["pct_faturado"] = round(c["faturado"] / c["producao"] * 100, 1) if c["producao"] else 0.0
+    convenios = sorted(convs.values(), key=lambda x: -x["producao"])
+
+    tps = _merge_by_key([p.get("tipos") for p in parts], "nome", ("qtde", "final", "producao"))
+    for t in tps.values():
+        t["producao"] = round(t["producao"], 2)
+        t["pct"]      = round(t["producao"] / prod * 100, 1) if prod else 0.0
+        t["ticket"]   = round(t["producao"] / t["qtde"], 2) if t["qtde"] else 0.0
+    tipos = sorted(tps.values(), key=lambda x: -x["producao"])[:20]
+
+    # ── Atendentes ────────────────────────────────────────────────────────
+    ats = _merge_by_key([p.get("atendentes") for p in parts], "nome",
+                        ("agendamentos", "finalizados", "marcado", "producao"))
+    for a in ats.values():
+        a["producao"]   = round(a["producao"], 2)
+        a["taxa_final"] = round(a["finalizados"] / a["agendamentos"] * 100, 1) if a["agendamentos"] else 0.0
+        a["ticket"]     = round(a["producao"] / a["finalizados"], 2) if a["finalizados"] else 0.0
+    atendentes = sorted(ats.values(), key=lambda x: -x["finalizados"])
+
+    # ── Cruzamento status agendamento × atendimento ───────────────────────
+    cds = [p["cross_data"] for p in parts if (p.get("cross_data") or {}).get("matrix")]
+    if cds:
+        cross_data = {
+            "labels_ag": cds[0]["labels_ag"], "labels_at": cds[0]["labels_at"],
+            "matrix":    [[sum(col) for col in zip(*rows)] for rows in zip(*(cd["matrix"] for cd in cds))],
+            "totals_ag": [sum(col) for col in zip(*(cd["totals_ag"] for cd in cds))],
+            "totals_at": [sum(col) for col in zip(*(cd["totals_at"] for cd in cds))],
+        }
+    else:
+        cross_data = {"labels_ag": [], "labels_at": [], "matrix": [], "totals_ag": [], "totals_at": []}
+
+    localidade = _sum_dicts([p.get("localidade") for p in parts])
+    localidade = dict(sorted(localidade.items(), key=lambda kv: -kv[1])[:20])
+
+    return {
+        "total_registros":     sum(p.get("total_registros", 0) for p in parts),
+        "meta":                meta,
+        "meta_diaria":         round(meta_diaria, 2),
+        "alcance_meta":        k["alcance_meta"],
+        "dias":                dias,
+        "media_diaria":        round(prod / dias, 2) if dias else 0.0,
+        "melhor_dia":          melhor.get("melhor_dia", "—"),
+        "melhor_dia_prod":     melhor.get("melhor_dia_prod", 0.0),
+        "kpis":                k,
+        "evolucao_diaria":     evo,
+        "profissionais":       profissionais,
+        "especialidades":      especialidades,
+        "convenios":           convenios,
+        "tipos":               tipos,
+        "atendentes":          atendentes,
+        "perdas_distribuicao": _sum_dicts([p.get("perdas_distribuicao") for p in parts]),
+        "status_agendamento":  _sum_dicts([p.get("status_agendamento") for p in parts]),
+        "status_atendimento":  _sum_dicts([p.get("status_atendimento") for p in parts]),
+        "cross_data":          cross_data,
+        "genero":              _sum_dicts([p.get("genero") for p in parts]),
+        "faixa_etaria":        _sum_dicts([p.get("faixa_etaria") for p in parts]),
+        "localidade":          localidade,
+        "convenios_pacientes": _sum_dicts([p.get("convenios_pacientes") for p in parts]),
+        "como_achou":          _sum_dicts([p.get("como_achou") for p in parts]),
+    }
+
+
 def _merge_bi_reports(reports: list[dict]) -> dict:
-    """Mescla N relatórios mensais pré-agregados numa visão de período."""
+    """Mescla relatórios de períodos disjuntos (em ordem cronológica) numa visão única."""
     if not reports:
         return {}
     if len(reports) == 1:
         return reports[0]
 
-    base = reports[0]
+    merged = _merge_aggregates(reports)
 
-    # ── KPIs aditivos ────────────────────────────────────────────────────
-    SOMAS = [
-        "total_atendimentos", "total_agendamentos", "total_faltas",
-        "total_cancelados", "total_producao", "total_faturamento",
-        "total_faturado_cnt", "total_reagendados", "total_desmarcados_ag",
-        "total_faltas_ag", "total_confirmados", "total_pacientes",
-        "total_acima_60", "total_acima_80",
-    ]
-    k: dict = {}
-    for key in SOMAS:
-        k[key] = sum(r.get("kpis", {}).get(key, 0) for r in reports)
+    # ── Por unidade ───────────────────────────────────────────────────────
+    units = sorted({u for r in reports for u in (r.get("por_unidade") or {})})
+    por_unidade: dict[str, dict] = {}
+    for unit in units:
+        unit_reps = [r["por_unidade"][unit] for r in reports if unit in (r.get("por_unidade") or {})]
+        por_unidade[unit] = {**_merge_aggregates(unit_reps), "nome_unidade": unit}
 
-    n_atend = k["total_atendimentos"]
-    n_agend = k["total_agendamentos"]
-    n_prod  = k["total_producao"]
-    n_fat   = k["total_faturamento"]
-    n_pac   = k["total_pacientes"]
-    meta    = base.get("meta", 1_000_000)
-
-    k["taxa_atendimento"] = round(n_atend / n_agend * 100, 2) if n_agend else 0.0
-    k["taxa_faltas"]      = round(k["total_faltas"] / n_agend * 100, 2) if n_agend else 0.0
-    k["ticket_medio"]     = round(n_prod / n_atend, 2) if n_atend else 0.0
-    k["pct_faturado"]     = round(n_fat / n_prod * 100, 1) if n_prod else 0.0
-    k["alcance_meta"]     = round(n_prod / meta * 100, 1) if meta else 0.0
-    k["pct_acima_60"]     = round(k["total_acima_60"] / n_pac * 100, 1) if n_pac else 0.0
-    k["pct_acima_80"]     = round(k["total_acima_80"] / n_pac * 100, 1) if n_pac else 0.0
-    k["a_faturar"]        = max(0.0, round(n_prod - n_fat, 2))
-
-    # Média diária ponderada
-    total_dias = sum(len(r.get("evolucao_diaria", {}).get("labels", [])) for r in reports)
-    k["media_diaria"] = round(n_prod / total_dias, 2) if total_dias else 0.0
-
-    # Idade média ponderada (ponderada pelos atendimentos)
-    idades = [(r.get("kpis", {}).get("idade_media", 0), r.get("kpis", {}).get("total_atendimentos", 0))
-              for r in reports if r.get("kpis", {}).get("idade_media")]
-    if idades:
-        peso_total = sum(p for _, p in idades)
-        k["idade_media"] = round(sum(i * p for i, p in idades) / peso_total, 1) if peso_total else 0.0
-    else:
-        k["idade_media"] = 0.0
-
-    # KPIs extras que existem no retorno individual
-    for extra in ("total_particular", "total_convenio", "melhor_dia", "melhor_dia_prod"):
-        vals = [r.get("kpis", {}).get(extra) for r in reports if r.get("kpis", {}).get(extra)]
-        if extra in ("total_particular", "total_convenio"):
-            k[extra] = sum(v for v in vals if isinstance(v, (int, float)))
-        else:
-            k.setdefault(extra, None)
-
-    # ── Evolução diária (concatena todos os dias) ─────────────────────────
-    evo: dict = {"labels": [], "atend": [], "faltas": [], "prod": [], "meta_pct": []}
-    for r in reports:
-        e = r.get("evolucao_diaria", {})
-        evo["labels"].extend(e.get("labels", []))
-        evo["atend"].extend(e.get("atend", []))
-        evo["faltas"].extend(e.get("faltas", []))
-        evo["prod"].extend(e.get("prod", []))
-        evo["meta_pct"].extend(e.get("meta_pct", []))
-
-    # ── Convênios ─────────────────────────────────────────────────────────
-    conv_map: dict[str, dict] = {}
-    for r in reports:
-        for c in r.get("convenios", []):
-            nome = c.get("nome", "")
-            if nome not in conv_map:
-                conv_map[nome] = {**c, "realizados": 0, "producao": 0, "faltas": 0, "desmarcados": 0}
-            for f in ("realizados", "producao", "faltas", "desmarcados"):
-                conv_map[nome][f] = conv_map[nome].get(f, 0) + c.get(f, 0)
-    tot_r = sum(c["realizados"] for c in conv_map.values()) or 1
-    tot_p = sum(c["producao"]   for c in conv_map.values()) or 1
-    for c in conv_map.values():
-        c["pct_atend"] = round(c["realizados"] / tot_r * 100, 1)
-        c["pct_prod"]  = round(c["producao"]   / tot_p * 100, 1)
-    convenios = sorted(conv_map.values(), key=lambda x: -x["producao"])
-
-    # ── Profissionais ─────────────────────────────────────────────────────
-    prof_map: dict[str, dict] = {}
-    for r in reports:
-        for p in r.get("profissionais", []):
-            nome = p.get("nome", "")
-            if nome not in prof_map:
-                prof_map[nome] = {**p, "total": 0, "final": 0, "prod": 0.0,
-                                  "faturado": 0.0, "faltas_ag": 0, "desmarcados": 0, "reagendados": 0}
-            for f in ("total", "final", "faltas_ag", "desmarcados", "reagendados"):
-                prof_map[nome][f] = prof_map[nome].get(f, 0) + p.get(f, 0)
-            prof_map[nome]["prod"]     = round(prof_map[nome].get("prod", 0) + p.get("prod", 0), 2)
-            prof_map[nome]["faturado"] = round(prof_map[nome].get("faturado", 0) + p.get("faturado", 0), 2)
-    for p in prof_map.values():
-        p["qtde"]        = p["total"]
-        p["marcado"]     = p["total"] - p["final"]
-        p["taxa_final"]  = round(p["final"] / p["total"] * 100, 1) if p["total"] else 0.0
-        p["a_faturar"]   = max(0.0, round(p["prod"] - p["faturado"], 2))
-        p["pct_faturado"]= round(p["faturado"] / p["prod"] * 100, 1) if p["prod"] else 0.0
-    profissionais = sorted(prof_map.values(), key=lambda x: -(x["prod"] if x["prod"] > 0 else x["final"]))
-
-    # ── Especialidades ────────────────────────────────────────────────────
-    esp_map: dict[str, dict] = {}
-    for r in reports:
-        for e in r.get("especialidades", []):
-            nome = e.get("nome", "")
-            if nome not in esp_map:
-                esp_map[nome] = {**e, "marcado": 0, "realizado": 0, "falta": 0, "producao": 0}
-            for f in ("marcado", "realizado", "falta", "producao"):
-                esp_map[nome][f] = esp_map[nome].get(f, 0) + e.get(f, 0)
-    for e in esp_map.values():
-        e["taxa"] = round(e["realizado"] / e["marcado"] * 100, 1) if e["marcado"] else 0
-    especialidades = sorted(esp_map.values(), key=lambda x: -x["realizado"])
-
-    # ── Dicts simples: faixa etária, gênero, localidade, convênios pac. ───
-    def _merge_dicts(key: str) -> dict:
-        out: dict = {}
-        for r in reports:
-            for dk, dv in (r.get(key) or {}).items():
-                out[dk] = out.get(dk, 0) + dv
-        return out
-
-    faixa_etaria      = _merge_dicts("faixa_etaria")
-    genero            = _merge_dicts("genero")
-    localidade        = _merge_dicts("localidade")
-    convenios_pac     = _merge_dicts("convenios_pacientes")
-    perdas_dist       = _merge_dicts("perdas_dist")
+    summ = _merge_by_key([r.get("unidades_summary") for r in reports], "nome",
+                         ("total", "final", "marcado", "prod"))
+    tot_prod = merged["kpis"].get("total_producao", 0)
+    for s in summ.values():
+        s["prod"]       = round(s["prod"], 2)
+        s["taxa_final"] = round(s["final"] / s["total"] * 100, 1) if s["total"] else 0.0
+        s["pct_prod"]   = round(s["prod"] / tot_prod * 100, 1) if tot_prod else 0.0
 
     # ── Período ───────────────────────────────────────────────────────────
-    all_ini = [r.get("periodo", {}).get("inicio", "") for r in reports if r.get("periodo", {}).get("inicio")]
-    all_fim = [r.get("periodo", {}).get("fim",    "") for r in reports if r.get("periodo", {}).get("fim")]
-    p_ini   = min(all_ini) if all_ini else ""
-    p_fim   = max(all_fim) if all_fim else ""
-    lbl_ini = reports[0].get("periodo", {}).get("label", "")
-    lbl_fim = reports[-1].get("periodo", {}).get("label", "")
-    p_label = lbl_ini if lbl_ini == lbl_fim else f"{lbl_ini} – {lbl_fim}"
-
-    # ── Por unidade: mescla sem recursão para evitar KeyError em sub-dicts ──
-    por_unidade: dict[str, dict] = {}
-    all_units: set[str] = set()
-    for r in reports:
-        all_units.update((r.get("por_unidade") or {}).keys())
-    for unit in all_units:
-        unit_reps = [r["por_unidade"][unit] for r in reports if unit in (r.get("por_unidade") or {})]
-        if not unit_reps:
-            continue
-        if len(unit_reps) == 1:
-            por_unidade[unit] = unit_reps[0]
-            continue
-        # Merge simples dos KPIs de unidade (mesmos campos que o global)
-        uk: dict = {}
-        for key in ("total_atendimentos", "total_agendamentos", "total_faltas",
-                    "total_cancelados", "total_producao", "total_faturamento",
-                    "total_faturado_cnt", "total_pacientes"):
-            uk[key] = sum(ur.get("kpis", {}).get(key, 0) for ur in unit_reps)
-        n_a = uk.get("total_atendimentos", 0)
-        n_g = uk.get("total_agendamentos", 0)
-        n_p = uk.get("total_producao", 0)
-        uk["taxa_atendimento"] = round(n_a / n_g * 100, 2) if n_g else 0.0
-        uk["ticket_medio"]     = round(n_p / n_a, 2) if n_a else 0.0
-        uk["alcance_meta"]     = round(n_p / meta * 100, 1) if meta else 0.0
-        # Evolução diária concatenada
-        u_evo: dict = {"labels": [], "atend": [], "faltas": [], "prod": [], "meta_pct": []}
-        for ur in unit_reps:
-            e = ur.get("evolucao_diaria", {})
-            for fld in ("labels", "atend", "faltas", "prod", "meta_pct"):
-                u_evo[fld].extend(e.get(fld, []))
-        por_unidade[unit] = {**unit_reps[0], "kpis": uk, "evolucao_diaria": u_evo}
-
-    # period_key do range: usa .get() para funcionar tanto no nível raiz quanto em sub-dicts
-    pk_ini = reports[0].get("period_key", "")
-    pk_fim = reports[-1].get("period_key", pk_ini)
+    first, last = reports[0], reports[-1]
+    pk_ini  = first.get("period_key", "")
+    pk_fim  = last.get("period_key", pk_ini)
+    lbl_ini = first.get("periodo", {}).get("label", "")
+    lbl_fim = last.get("periodo", {}).get("label", "")
 
     return {
-        "period_key":          f"{pk_ini}:{pk_fim}" if pk_ini != pk_fim else pk_ini,
-        "periodo":             {"label": p_label, "inicio": p_ini, "fim": p_fim},
-        "total_registros":     sum(r.get("total_registros", 0) for r in reports),
-        "meta":                meta,
-        "meta_diaria":         base.get("meta_diaria", 0),
-        "alcance_meta":        k["alcance_meta"],
-        "kpis":                k,
-        "evolucao_diaria":     evo,
-        "convenios":           convenios,
-        "profissionais":       profissionais,
-        "especialidades":      especialidades,
-        "faixa_etaria":        faixa_etaria,
-        "genero":              genero,
-        "localidade":          localidade,
-        "convenios_pacientes": convenios_pac,
-        "perdas_dist":         perdas_dist,
-        "lista_unidades":      base.get("lista_unidades", []),
-        "por_unidade":         por_unidade,
-        "unidades_summary":    [],
+        **merged,
+        "atualizado_em":    max(r.get("atualizado_em") or "" for r in reports),
+        "period_key":       f"{pk_ini}:{pk_fim}" if pk_ini != pk_fim else pk_ini,
+        "periodo": {
+            "inicio": first.get("periodo", {}).get("inicio", ""),
+            "fim":    last.get("periodo", {}).get("fim", ""),
+            "label":  lbl_ini if lbl_ini == lbl_fim else f"{lbl_ini} – {lbl_fim}",
+        },
+        "lista_unidades":   units,
+        "unidades_summary": sorted(summ.values(), key=lambda s: s["nome"]),
+        "por_unidade":      por_unidade,
     }
 
 
-def load_saved_range(period_from: str | None, period_to: str | None) -> dict | None:
-    """Carrega e mescla todos os bi_reports no intervalo [period_from, period_to]."""
-    # Sem filtro → relatório mais recente
-    if not period_from and not period_to:
-        return load_saved()
+def load_report_for_dates(date_from: str, date_to: str) -> dict | None:
+    """Relatório do intervalo [date_from, date_to] (AAAA-MM-DD), filtrando pela data exata.
 
-    # Mesmo mês → caminho rápido
-    if period_from and period_to and period_from == period_to:
-        return load_saved(period_from)
+    Meses cobertos por inteiro usam o relatório salvo em bi_reports (que tem também os
+    status de agendamento); meses parciais são recalculados a partir de bi_atendimentos
+    somente com os dias pedidos. As partes são mescladas em ordem cronológica.
+    """
+    import calendar
+    from datetime import date, timedelta
 
-    try:
-        from app.database import get_supabase_admin
-        sb  = get_supabase_admin()
-        q   = sb.table("bi_reports").select("data").order("period_key")
-        if period_from:
-            q = q.gte("period_key", period_from)
-        if period_to:
-            q = q.lte("period_key", period_to)
-        res = q.execute()
-        reps = [row["data"] for row in (res.data or []) if row.get("data")]
-        if not reps:
-            return None
-        merged = _merge_bi_reports(reps)
-        # Enriquece com lista completa de profissionais da bi_atendimentos
-        profs = _calc_profissionais_from_atendimentos(period_from or "", period_to or "")
-        if len(profs) > len(merged.get("profissionais", [])):
-            merged["profissionais"] = profs
-        return merged
-    except Exception as e:
-        print("BI LOAD RANGE ERROR:", repr(e))
-        # Fallback: tenta carregar o mês inicial
-        return load_saved(period_from)
+    d1, d2 = date.fromisoformat(date_from), date.fromisoformat(date_to)
+    if d1 > d2:
+        d1, d2 = d2, d1
+
+    # Quebra o intervalo em meses: (period_key, início, fim, mês_inteiro)
+    segments: list[tuple[str, date, date, bool]] = []
+    cur = d1.replace(day=1)
+    while cur <= d2:
+        month_end = cur.replace(day=calendar.monthrange(cur.year, cur.month)[1])
+        ini, fim  = max(d1, cur), min(d2, month_end)
+        segments.append((cur.strftime("%Y-%m"), ini, fim, ini == cur and fim == month_end))
+        cur = month_end + timedelta(days=1)
+
+    # Um único mês inteiro → caminho rápido (relatório salvo)
+    if len(segments) == 1 and segments[0][3]:
+        return load_saved(segments[0][0])
+
+    saved: dict[str, dict] = {}
+    full_keys = [pk for pk, _, _, full in segments if full]
+    if full_keys:
+        try:
+            from app.database import get_supabase_admin
+            res = (get_supabase_admin().table("bi_reports").select("period_key,data")
+                   .in_("period_key", full_keys).execute())
+            saved = {r["period_key"]: _strip_pending(r["data"]) for r in (res.data or []) if r.get("data")}
+        except Exception as e:
+            print("BI LOAD RANGE ERROR:", repr(e))
+
+    def _load_segment(seg: tuple[str, date, date, bool]) -> dict | None:
+        pk, ini, fim, full = seg
+        if full:
+            return saved.get(pk)
+        return _report_from_rows(_fetch_atendimentos(_ATEND_COLS, date_from=ini.isoformat(),
+                                                     date_to=fim.isoformat()))
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=len(segments)) as ex:
+        parts = [rep for rep in ex.map(_load_segment, segments) if rep]
+    if not parts:
+        return None
+
+    data = _merge_bi_reports(parts)
+    data["periodo"] = {**data.get("periodo", {}), "label": f"{d1:%d/%m/%Y} – {d2:%d/%m/%Y}"}
+    return data
 
 
 def clear_saved(period_key: str | None = None) -> None:
