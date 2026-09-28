@@ -395,54 +395,207 @@ async function pacBuscar(page) {
   }
 }
 
-async function pacExportar(e) {
-  e.preventDefault();
-  if (!rangeValid()) { document.getElementById('pac-range-warn').style.display = ''; return; }
-  const allRows = [];
-  let pg = 1, totalPgs = 1;
-  do {
-    const p = new URLSearchParams(pacUrlParams(pg));
-    p.set('per_page', 200);
-    const r = await fetch('/bi/pacientes/data?' + p.toString());
-    const d = await r.json();
-    if (!d.ok) break;
-    totalPgs = d.pages;
-    allRows.push(...d.rows);
-    pg++;
-  } while (pg <= totalPgs);
+// ── Exportação Excel (.xlsx com logo, gerado no navegador) ─────────────
+const XL = {
+  laranja: 'FFE5622E', escuro: 'FF151515', cinza: 'FF5F5F5E',
+  faixa:   'FFFDF1E9', borda:  'FFE6E2DC', branco: 'FFFFFFFF',
+};
+const XL_LINHA_CAB = 8;   // linha do cabeçalho da tabela (acima: logo, título e resumo)
+let pacExportando = false;
 
-  const lines = ['Paciente;CPF;Nascimento;Endereço;Convênio;Agendamentos;Finalizados;% Comparecimento;Tipo de Atendimento;Quantidade'];
-  for (const pac of allRows) {
-    const pct  = pac.agendamentos > 0 ? Math.round(pac.finalizados / pac.agendamentos * 100) : 0;
-    const cpf  = pac.cpf || '';
-    const nasc = fmtDate(pac.data_nascimento);
-    const end  = (pac.endereco || '').replace(/;/g, ',');
-    const conv = (pac.convenios || []).join(', ').replace(/;/g, ',');
-    if (pac.tipos && pac.tipos.length) {
-      pac.tipos.forEach((t, i) => {
-        lines.push([
-          i === 0 ? pac.nome : '',
-          i === 0 ? cpf      : '',
-          i === 0 ? nasc     : '',
-          i === 0 ? end      : '',
-          i === 0 ? conv     : '',
-          i === 0 ? pac.agendamentos : '',
-          i === 0 ? pac.finalizados  : '',
-          i === 0 ? pct + '%'        : '',
-          t.nome, t.qtde
-        ].join(';'));
-      });
-    } else {
-      lines.push(`${pac.nome};${cpf};${nasc};${end};${conv};${pac.agendamentos};${pac.finalizados};${pct}%;;`);
-    }
-    lines.push(';;;;;;;;;');
+function carregarExcelJS() {
+  if (window.ExcelJS) return Promise.resolve();
+  return new Promise((ok, erro) => {
+    document.head.appendChild(Object.assign(document.createElement('script'), {
+      src: 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js',
+      onload: ok,
+      onerror: () => erro(new Error('não foi possível carregar o gerador de Excel')),
+    }));
+  });
+}
+
+async function logoBase64() {
+  const blob = await (await fetch('/static/assets/logo.png')).blob();
+  return new Promise(ok => {
+    const r = new FileReader();
+    r.onload = () => ok(r.result);
+    r.readAsDataURL(blob);
+  });
+}
+
+// "AAAA-MM-DD" → Date em UTC, para a célula virar data de verdade no Excel
+function isoParaData(iso) {
+  const p = String(iso || '').slice(0, 10).split('-').map(Number);
+  return p.length === 3 && p[0] ? new Date(Date.UTC(p[0], p[1] - 1, p[2])) : null;
+}
+
+function isoParaBr(iso) {
+  const p = String(iso || '').split('-');
+  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : '';
+}
+
+// Logo, título, filtros usados e resumo — igual nas duas abas
+function xlCabecalho(wb, ws, ncols, info, logoId) {
+  [1, 2, 3].forEach(r => ws.getRow(r).height = 22);
+  if (logoId !== null) {
+    ws.addImage(logoId, { tl: { col: 0.1, row: 0.25 }, ext: { width: 230, height: 60 }, editAs: 'oneCell' });
+  }
+  const tit = ws.getCell('B1');
+  tit.value = 'Analítico de Pacientes';
+  tit.font  = { name: 'Calibri', size: 18, bold: true, color: { argb: XL.escuro } };
+  ws.getCell('B2').value = info.subtitulo;
+  ws.getCell('B2').font  = { size: 11, color: { argb: XL.cinza } };
+  ws.getCell('B3').value = info.gerado;
+  ws.getCell('B3').font  = { size: 9, italic: true, color: { argb: XL.cinza } };
+  for (let c = 1; c <= ncols; c++) {
+    ws.getCell(3, c).border = { bottom: { style: 'medium', color: { argb: XL.laranja } } };
   }
 
-  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-  const a = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(blob), download: 'analitico_pacientes.csv'
+  ws.getRow(4).height = 10;
+  info.resumo.forEach(([rotulo, valor, fmt], i) => {
+    const l = ws.getCell(5, i + 1), v = ws.getCell(6, i + 1);
+    l.value = rotulo.toUpperCase();
+    l.font  = { size: 8, bold: true, color: { argb: XL.cinza } };
+    v.value = valor;
+    v.numFmt = fmt;
+    v.font  = { size: 14, bold: true, color: { argb: XL.laranja } };
+    v.alignment = { horizontal: 'left' };
   });
-  a.click(); URL.revokeObjectURL(a.href);
+  ws.getRow(7).height = 10;
+}
+
+// Tabela com cabeçalho laranja, filtro, faixas alternadas por paciente e colunas congeladas
+function xlTabela(ws, cols, linhas) {
+  ws.columns = cols.map(c => ({ width: c.w }));
+  const cab = ws.getRow(XL_LINHA_CAB);
+  cab.height = 24;
+  cols.forEach((c, i) => {
+    const cell = cab.getCell(i + 1);
+    cell.value = c.h;
+    cell.font  = { bold: true, color: { argb: XL.branco } };
+    cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: XL.laranja } };
+    cell.alignment = { vertical: 'middle', horizontal: c.num ? 'right' : 'left' };
+  });
+
+  linhas.forEach(({ valores, grupo }, idx) => {
+    const row = ws.getRow(XL_LINHA_CAB + 1 + idx);
+    valores.forEach((v, i) => {
+      const cell = row.getCell(i + 1), c = cols[i];
+      cell.value = v === null || v === undefined ? '' : v;
+      if (c.fmt) cell.numFmt = c.fmt;
+      cell.alignment = { vertical: 'top', horizontal: c.num ? 'right' : 'left', wrapText: !!c.wrap };
+      cell.border = { bottom: { style: 'thin', color: { argb: XL.borda } } };
+      if (grupo % 2 === 0) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: XL.faixa } };
+      if (i === 0) cell.font = { bold: true };
+    });
+  });
+
+  ws.autoFilter = { from: { row: XL_LINHA_CAB, column: 1 }, to: { row: XL_LINHA_CAB, column: cols.length } };
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: XL_LINHA_CAB, showGridLines: false }];
+  ws.pageSetup = {
+    paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+    printTitlesRow: `${XL_LINHA_CAB}:${XL_LINHA_CAB}`,
+  };
+}
+
+async function montarExcel(pacs, resumo, logo) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Espaço Physio — Intranet';
+  const logoId = logo ? wb.addImage({ base64: logo, extension: 'png' }) : null;
+
+  const df   = document.getElementById('pac-date-from').value;
+  const dt   = document.getElementById('pac-date-to').value;
+  const unit = document.getElementById('pac-unit').value || PAC_UNIT || 'Todas as unidades';
+  const srch = (document.getElementById('pac-search').value || '').trim();
+  const agora = new Date();
+  const info = {
+    subtitulo: `Período: ${isoParaBr(df)} a ${isoParaBr(dt)}   ·   Unidade: ${unit}` + (srch ? `   ·   Busca: "${srch}"` : ''),
+    gerado:    `Gerado em ${agora.toLocaleDateString('pt-BR')} às ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
+    resumo: [
+      ['Pacientes',                  resumo.total || 0,       '#,##0'],
+      ['Agendamentos',               resumo.total_agend || 0, '#,##0'],
+      ['Finalizados',                resumo.total_fin || 0,   '#,##0'],
+      ['Média de finalizados por paciente', resumo.avg_fin || 0, '0.0'],
+    ],
+  };
+
+  const base = p => [
+    p.nome, p.cpf || '', isoParaData(p.data_nascimento), p.endereco || '',
+    (p.convenios || []).join(', '), p.agendamentos, p.finalizados,
+    p.agendamentos ? p.finalizados / p.agendamentos : 0,
+  ];
+  const colsBase = [
+    { h: 'Paciente', w: 36 }, { h: 'CPF', w: 16 }, { h: 'Nascimento', w: 13, fmt: 'dd/mm/yyyy' },
+    { h: 'Endereço', w: 42, wrap: true }, { h: 'Convênio', w: 26, wrap: true },
+    { h: 'Agendamentos', w: 15, num: true }, { h: 'Finalizados', w: 13, num: true },
+    { h: '% Comparecimento', w: 19, num: true, fmt: '0%' },
+  ];
+
+  // Aba 1 — uma linha por tipo de atendimento, com os dados do paciente em todas as linhas
+  const det = wb.addWorksheet('Detalhado', { properties: { tabColor: { argb: XL.laranja } } });
+  const colsDet = [...colsBase, { h: 'Tipo de Atendimento', w: 32, wrap: true }, { h: 'Quantidade', w: 12, num: true }];
+  const linhasDet = [];
+  pacs.forEach((p, g) => {
+    const tipos = p.tipos && p.tipos.length ? p.tipos : [{ nome: 'Sem tipo registrado', qtde: '' }];
+    tipos.forEach(t => linhasDet.push({ valores: [...base(p), t.nome, t.qtde], grupo: g }));
+  });
+  xlTabela(det, colsDet, linhasDet);
+  xlCabecalho(wb, det, colsDet.length, info, logoId);
+
+  // Aba 2 — uma linha por paciente (somas sem repetição)
+  const res = wb.addWorksheet('Por paciente');
+  const colsRes = [...colsBase, { h: 'Tipos de Atendimento', w: 48, wrap: true }];
+  const linhasRes = pacs.map((p, g) => ({
+    valores: [...base(p), (p.tipos || []).map(t => `${t.nome} (${t.qtde})`).join(', ')],
+    grupo: g,
+  }));
+  xlTabela(res, colsRes, linhasRes);
+  xlCabecalho(wb, res, colsRes.length, info, logoId);
+
+  return wb.xlsx.writeBuffer();
+}
+
+async function pacExportar(e) {
+  e.preventDefault();
+  if (pacExportando) return;
+  if (!rangeValid()) { document.getElementById('pac-range-warn').style.display = ''; return; }
+
+  const btn = e.currentTarget, rotulo = btn.textContent;
+  pacExportando = true;
+  try {
+    btn.textContent = 'Preparando…';
+    const [, logo] = await Promise.all([carregarExcelJS(), logoBase64().catch(() => null)]);
+
+    const pacs = [];
+    let resumo = null, pg = 1, totalPgs = 1;
+    do {
+      const p = new URLSearchParams(pacUrlParams(pg));
+      p.set('per_page', 200);
+      const d = await (await fetch('/bi/pacientes/data?' + p.toString())).json();
+      if (!d.ok) throw new Error(d.erro || 'falha ao buscar os pacientes');
+      resumo = resumo || d;
+      totalPgs = d.pages;
+      pacs.push(...d.rows);
+      btn.textContent = `Exportando… ${pacs.length.toLocaleString('pt-BR')} de ${d.total.toLocaleString('pt-BR')}`;
+      pg++;
+    } while (pg <= totalPgs);
+
+    btn.textContent = 'Gerando Excel…';
+    const buf  = await montarExcel(pacs, resumo, logo);
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const df = document.getElementById('pac-date-from').value;
+    const dt = document.getElementById('pac-date-to').value;
+    const a  = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(blob), download: `analitico_pacientes_${df}_a_${dt}.xlsx`,
+    });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (err) {
+    alert('Erro ao exportar: ' + err.message);
+  } finally {
+    btn.textContent = rotulo;
+    pacExportando = false;
+  }
 }
 </script>
 {% endblock %}
