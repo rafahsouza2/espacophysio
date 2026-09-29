@@ -664,13 +664,13 @@ async def bi_pacientes_data(
         has_tipo_col = True
         offset = 0
         while True:
-            cols = "paciente,especialidade,tipo_atendimento,status,unidade,convenio" if has_tipo_col \
-                   else "paciente,especialidade,status,unidade,convenio"
+            cols = "paciente,especialidade,tipo_atendimento,status,unidade,convenio,data_atend" if has_tipo_col \
+                   else "paciente,especialidade,status,unidade,convenio,data_atend"
             try:
                 res = _build_query(cols).range(offset, offset + 999).execute()
             except Exception:
                 has_tipo_col = False
-                res = _build_query("paciente,especialidade,status,unidade,convenio").range(offset, offset + 999).execute()
+                res = _build_query("paciente,especialidade,status,unidade,convenio,data_atend").range(offset, offset + 999).execute()
             batch = res.data or []
             all_rows.extend(batch)
             if len(batch) < 1000:
@@ -692,8 +692,12 @@ async def bi_pacientes_data(
             tipo   = _tipo(r)
             conv   = (r.get("convenio") or "").strip()
             if nome not in pac_map:
-                pac_map[nome] = {"nome": nome, "agendamentos": 0, "finalizados": 0, "tipos": {}, "convenios": {}}
+                pac_map[nome] = {"nome": nome, "agendamentos": 0, "finalizados": 0, "tipos": {}, "convenios": {},
+                                 "ultimo_atend": None}
             pac_map[nome]["agendamentos"] += 1
+            dia = (r.get("data_atend") or "")[:10]
+            if dia > (pac_map[nome]["ultimo_atend"] or ""):
+                pac_map[nome]["ultimo_atend"] = dia
             if conv:
                 pac_map[nome]["convenios"][conv] = pac_map[nome]["convenios"].get(conv, 0) + 1
             if status == "realizado":
@@ -717,11 +721,12 @@ async def bi_pacientes_data(
                           for k, v in sorted(p["tipos"].items(), key=lambda x: -x[1])]
             p["convenios"] = [k for k, _ in sorted(p["convenios"].items(), key=lambda x: -x[1])]
 
-        # CPF, data de nascimento e endereço vêm do iGut (nome idêntico); o cadastro local
-        # serve de reserva campo a campo se a API não responder ou não tiver o dado
+        # CPF, data de nascimento, endereço e carteirinha vêm do iGut (nome idêntico); o cadastro
+        # local serve de reserva campo a campo se a API não responder ou não tiver o dado.
+        # O último atendimento no período localiza o agendamento de onde sai a carteirinha.
         from app.igut import dados_por_nome
         igut, pac_extra = await asyncio.gather(
-            dados_por_nome([p["nome"] for p in page_data]),
+            dados_por_nome({p["nome"]: p.pop("ultimo_atend") for p in page_data}),
             asyncio.to_thread(_get_pacientes_map),
         )
         for p in page_data:
@@ -730,6 +735,7 @@ async def bi_pacientes_data(
             p["cpf"]             = ig.get("cpf")             or ex.get("cpf")
             p["data_nascimento"] = ig.get("data_nascimento") or ex.get("data_nascimento")
             p["endereco"]        = ig.get("endereco")        or ex.get("observacoes")
+            p["carteirinha"]     = ig.get("carteirinha")
 
         return JSONResponse({
             "ok":    True,

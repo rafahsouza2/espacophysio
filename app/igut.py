@@ -1,6 +1,6 @@
 """
 Integração com a API do iGut Clínicas (https://api.igut.med.br/docs/).
-Fornece CPF, data de nascimento e endereço dos pacientes para o B.I.
+Fornece CPF, data de nascimento, endereço e carteirinha dos pacientes para o B.I.
 
 Todas as chamadas levam o header client_token (nome da clínica em Base64); as autenticadas
 levam também o Bearer obtido em POST /v2/usuarios/login.
@@ -54,12 +54,12 @@ async def _login(client: httpx.AsyncClient, force: bool = False) -> str:
     return token
 
 
-async def _get(client: httpx.AsyncClient, path: str, params: dict) -> dict:
-    """GET autenticado; refaz o login uma vez se o token for recusado."""
+async def _req(client: httpx.AsyncClient, method: str, path: str, **kw) -> dict:
+    """Chamada autenticada; refaz o login uma vez se o token for recusado."""
     for tentativa in range(2):
         token = await _login(client, force=tentativa > 0)
-        r = await client.get(path, params=params, headers={"client_token": _client_token(),
-                                                           "Authorization": f"Bearer {token}"})
+        r = await client.request(method, path, headers={"client_token": _client_token(),
+                                                        "Authorization": f"Bearer {token}"}, **kw)
         if r.status_code not in (401, 403):
             r.raise_for_status()
             return r.json()
@@ -85,27 +85,55 @@ def _endereco(p: dict) -> str | None:
     return ", ".join(x for x in partes if x) or None
 
 
-async def _buscar_paciente(client: httpx.AsyncClient, nome: str) -> dict | None:
-    """{cpf, data_nascimento, endereco} do paciente com nome idêntico. None se não achar
-    ou se houver homônimos (CPFs diferentes, ou mais de um cadastro sem CPF)."""
-    body = await _get(client, "/v2/pacientes/listar", {"nome": nome})
-    data = body.get("data") if isinstance(body.get("data"), list) else []
+async def _carteirinha(client: httpx.AsyncClient, ids: list, data: str) -> str | None:
+    """Número da carteirinha do convênio. Só vem nos agendamentos (Paciente.numerocarteiraconvenio);
+    filtrar pelo dia de um atendimento conhecido traz 1 agendamento em vez do histórico todo."""
+    for pid in ids:
+        body = await _req(client, "POST", "/v2/consultas/buscar",
+                          json={"Paciente.id": str(pid), "Agendamento.data": data,
+                                "Agendamento.data_fim": data})
+        for item in body.get("data") if isinstance(body.get("data"), list) else []:
+            num = str((item.get("Paciente") or {}).get("numerocarteiraconvenio") or "").strip()
+            if num:
+                return num
+    return None
+
+
+async def _buscar_paciente(client: httpx.AsyncClient, nome: str,
+                           data: str | None) -> tuple[dict | None, bool]:
+    """({cpf, data_nascimento, endereco, carteirinha}, completo) do paciente com nome idêntico.
+    Dados None se não achar ou se houver homônimos (CPFs diferentes, ou mais de um cadastro
+    sem CPF). data = dia de um atendimento do paciente, usado para achar a carteirinha.
+    completo=False quando a carteirinha falhou (o resultado não vai para o cache)."""
+    body = await _req(client, "GET", "/v2/pacientes/listar", params={"nome": nome})
+    itens = body.get("data") if isinstance(body.get("data"), list) else []
     alvo = _norm(nome)
-    iguais = [p for p in ((item.get("Paciente") or item) for item in data if isinstance(item, dict))
+    iguais = [p for p in ((item.get("Paciente") or item) for item in itens if isinstance(item, dict))
               if _norm(p.get("nome", "")) == alvo]
     com_cpf = [p for p in iguais if (p.get("cpf") or "").strip()]
     if len({p["cpf"].strip() for p in com_cpf}) > 1 or (not com_cpf and len(iguais) != 1):
-        return None
+        return None, True
     p = (com_cpf or iguais)[0]
+
+    # Cadastros duplicados com o mesmo CPF: o agendamento pode estar em qualquer um deles
+    carteirinha, completo = None, True
+    if data:
+        try:
+            carteirinha = await _carteirinha(client, [q["id"] for q in (com_cpf or iguais)], data)
+        except Exception as e:
+            print("IGUT CARTEIRINHA ERROR:", nome, repr(e))
+            completo = False
     return {
         "cpf":             (p.get("cpf") or "").strip() or None,
         "data_nascimento": _nascimento_iso(p.get("datadenascimento")),
         "endereco":        _endereco(p),
-    }
+        "carteirinha":     carteirinha,
+    }, completo
 
 
-async def dados_por_nome(nomes: list[str]) -> dict[str, dict]:
-    """Retorna {nome: {cpf, data_nascimento, endereco}} dos pacientes encontrados no iGut.
+async def dados_por_nome(pacientes: dict[str, str | None]) -> dict[str, dict]:
+    """Recebe {nome: dia (AAAA-MM-DD) de um atendimento do paciente} e retorna
+    {nome: {cpf, data_nascimento, endereco, carteirinha}} dos encontrados no iGut.
     Nunca levanta exceção: em caso de falha da API devolve o que conseguiu."""
     if not configurado():
         return {}
@@ -113,7 +141,7 @@ async def dados_por_nome(nomes: list[str]) -> dict[str, dict]:
     agora = time.time()
     resultado: dict[str, dict] = {}
     pendentes: list[str] = []
-    for nome in dict.fromkeys(n for n in nomes if n):
+    for nome in (n for n in pacientes if n):
         hit = _pac_cache.get(_norm(nome))
         if hit and agora - hit[0] < _CACHE_TTL:
             if hit[1]:
@@ -131,11 +159,12 @@ async def dados_por_nome(nomes: list[str]) -> dict[str, dict]:
             async def _um(nome: str) -> None:
                 async with sem:
                     try:
-                        dados = await _buscar_paciente(client, nome)
+                        dados, completo = await _buscar_paciente(client, nome, pacientes[nome])
                     except Exception as e:
                         print("IGUT PACIENTE ERROR:", nome, repr(e))
                         return   # não guarda no cache: tenta de novo na próxima
-                _pac_cache[_norm(nome)] = (time.time(), dados)
+                if completo:
+                    _pac_cache[_norm(nome)] = (time.time(), dados)
                 if dados:
                     resultado[nome] = dados
 
