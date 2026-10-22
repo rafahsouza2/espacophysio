@@ -107,10 +107,11 @@
           <th class="right" style="width:80px">% Comp.</th>
           <th style="min-width:180px">Tipo de Atendimento</th>
           <th class="right" style="width:70px">Qtde</th>
+          <th style="min-width:170px">Datas</th>
         </tr>
       </thead>
       <tbody id="pac-tbody">
-        <tr><td colspan="11" class="pac-empty">Selecione o período e clique em Buscar.</td></tr>
+        <tr><td colspan="12" class="pac-empty">Selecione o período e clique em Buscar.</td></tr>
       </tbody>
     </table>
   </div>
@@ -179,6 +180,7 @@
 .pac-tipo-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); flex-shrink: 0; opacity: .6; }
 .pac-qtde { font-weight: 700; font-size: .9rem; color: var(--primary); text-align: right; }
 .pac-no-tipo { font-size: .8rem; color: var(--muted); font-style: italic; }
+.pac-datas { font-size: .78rem; color: var(--muted); line-height: 1.5; }
 
 .pac-pagination {
   display: flex; align-items: center; justify-content: center; gap: 16px;
@@ -296,6 +298,19 @@ function fmtDate(iso) {
   return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso;
 }
 
+// Datas dos atendimentos ("01/09 ×2 · 03/09"); com o ano quando o período passa de um ano
+function fmtDatas(datas) {
+  const df = document.getElementById('pac-date-from').value;
+  const dt = document.getElementById('pac-date-to').value;
+  const comAno = df.slice(0, 4) !== dt.slice(0, 4);
+  const qtd = {};
+  (datas || []).forEach(d => { qtd[d] = (qtd[d] || 0) + 1; });
+  return Object.keys(qtd).sort().map(d => {
+    const [y, m, dia] = d.split('-');
+    return (comAno ? `${dia}/${m}/${y.slice(2)}` : `${dia}/${m}`) + (qtd[d] > 1 ? ` ×${qtd[d]}` : '');
+  }).join(' · ');
+}
+
 function buildRows(pac) {
   const tipos  = pac.tipos || [];
   const pct    = pac.agendamentos > 0 ? Math.round(pac.finalizados / pac.agendamentos * 100) : 0;
@@ -325,11 +340,13 @@ function buildRows(pac) {
         <td class="right" rowspan="${n}" style="font-weight:600;color:${pctClr}">${pct}%</td>
         <td><div class="pac-tipo-nome"><span class="pac-tipo-dot"></span>${t.nome}</div></td>
         <td class="pac-qtde">${t.qtde}</td>
+        <td class="pac-datas">${fmtDatas(t.datas)}</td>
       </tr>`;
     } else {
       rows += `<tr class="${cls}">
         <td><div class="pac-tipo-nome"><span class="pac-tipo-dot"></span>${t.nome}</div></td>
         <td class="pac-qtde">${t.qtde}</td>
+        <td class="pac-datas">${fmtDatas(t.datas)}</td>
       </tr>`;
     }
   });
@@ -345,10 +362,10 @@ function buildRows(pac) {
       <td class="right">${pac.agendamentos}</td>
       <td class="right" style="font-weight:700;color:var(--primary)">${pac.finalizados}</td>
       <td class="right" style="font-weight:600;color:${pctClr}">${pct}%</td>
-      <td colspan="2" class="pac-no-tipo">Sem tipo registrado</td>
+      <td colspan="3" class="pac-no-tipo">Sem atendimento finalizado</td>
     </tr>`;
   }
-  rows += `<tr class="pac-sep"><td colspan="11"></td></tr>`;
+  rows += `<tr class="pac-sep"><td colspan="12"></td></tr>`;
   return rows;
 }
 
@@ -366,13 +383,13 @@ async function pacBuscar(page) {
   if (page < 1 || page > pacState.pages) return;
   pacState.page = page;
   const tbody = document.getElementById('pac-tbody');
-  tbody.innerHTML = `<tr><td colspan="11" class="pac-empty">Carregando…</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="12" class="pac-empty">Carregando…</td></tr>`;
 
   try {
     const res  = await fetch('/bi/pacientes/data?' + pacUrlParams(page));
     const data = await res.json();
     if (!data.ok) {
-      tbody.innerHTML = `<tr><td colspan="11" style="color:red;padding:20px">${data.erro}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="12" style="color:red;padding:20px">${data.erro}</td></tr>`;
       return;
     }
     pacState.pages = data.pages;
@@ -385,7 +402,7 @@ async function pacBuscar(page) {
 
     tbody.innerHTML = data.rows.length
       ? data.rows.map(buildRows).join('')
-      : `<tr><td colspan="11" class="pac-empty">Nenhum paciente encontrado.</td></tr>`;
+      : `<tr><td colspan="12" class="pac-empty">Nenhum paciente encontrado.</td></tr>`;
 
     const pg = document.getElementById('pac-pagination');
     pg.style.display = data.pages > 1 ? '' : 'none';
@@ -395,7 +412,7 @@ async function pacBuscar(page) {
     document.getElementById('pac-next').disabled = data.page >= data.pages;
 
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="11" style="color:red;padding:20px">Erro: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" style="color:red;padding:20px">Erro: ${e.message}</td></tr>`;
   }
 }
 
@@ -535,22 +552,26 @@ async function montarExcel(pacs, resumo, logo) {
     { h: '% Comparecimento', w: 19, num: true, fmt: '0%' },
   ];
 
-  // Aba 1 — uma linha por tipo de atendimento, com os dados do paciente em todas as linhas
+  // Aba 1 — uma linha por atendimento finalizado (data + tipo), com os dados do paciente em todas
   const det = wb.addWorksheet('Detalhado', { properties: { tabColor: { argb: XL.laranja } } });
-  const colsDet = [...colsBase, { h: 'Tipo de Atendimento', w: 32, wrap: true }, { h: 'Quantidade', w: 12, num: true }];
+  const colsDet = [...colsBase, { h: 'Data do Atendimento', w: 14, fmt: 'dd/mm/yyyy' },
+                   { h: 'Tipo de Atendimento', w: 32, wrap: true }];
   const linhasDet = [];
   pacs.forEach((p, g) => {
-    const tipos = p.tipos && p.tipos.length ? p.tipos : [{ nome: 'Sem tipo registrado', qtde: '' }];
-    tipos.forEach(t => linhasDet.push({ valores: [...base(p), t.nome, t.qtde], grupo: g }));
+    const atends = (p.tipos || []).flatMap(t => (t.datas || []).map(d => [d, t.nome])).sort();
+    if (!atends.length) atends.push(['', 'Sem atendimento finalizado']);
+    atends.forEach(([d, tipo]) => linhasDet.push({ valores: [...base(p), isoParaData(d), tipo], grupo: g }));
   });
   xlTabela(det, colsDet, linhasDet);
   xlCabecalho(wb, det, colsDet.length, info, logoId);
 
   // Aba 2 — uma linha por paciente (somas sem repetição)
   const res = wb.addWorksheet('Por paciente');
-  const colsRes = [...colsBase, { h: 'Tipos de Atendimento', w: 48, wrap: true }];
+  const colsRes = [...colsBase, { h: 'Tipos de Atendimento', w: 48, wrap: true },
+                   { h: 'Datas dos Atendimentos', w: 40, wrap: true }];
   const linhasRes = pacs.map((p, g) => ({
-    valores: [...base(p), (p.tipos || []).map(t => `${t.nome} (${t.qtde})`).join(', ')],
+    valores: [...base(p), (p.tipos || []).map(t => `${t.nome} (${t.qtde})`).join(', '),
+              (p.tipos || []).flatMap(t => t.datas || []).sort().map(isoParaBr).join(', ')],
     grupo: g,
   }));
   xlTabela(res, colsRes, linhasRes);

@@ -702,7 +702,7 @@ async def bi_pacientes_data(
                 pac_map[nome]["convenios"][conv] = pac_map[nome]["convenios"].get(conv, 0) + 1
             if status == "realizado":
                 pac_map[nome]["finalizados"] += 1
-                pac_map[nome]["tipos"][tipo] = pac_map[nome]["tipos"].get(tipo, 0) + 1
+                pac_map[nome]["tipos"].setdefault(tipo, []).append(dia)   # um dia por atendimento
 
         # Ordena por finalizados desc
         pacs = sorted(pac_map.values(), key=lambda x: -x["finalizados"])
@@ -715,10 +715,11 @@ async def bi_pacientes_data(
         start = (page - 1) * per_page
         page_data = [dict(p) for p in pacs[start:start + per_page]]
 
-        # Serializa tipos como lista ordenada; convênios do mais usado para o menos usado
+        # Serializa tipos (com a data de cada atendimento finalizado) do mais para o menos
+        # frequente; convênios do mais usado para o menos usado
         for p in page_data:
-            p["tipos"] = [{"nome": k, "qtde": v}
-                          for k, v in sorted(p["tipos"].items(), key=lambda x: -x[1])]
+            p["tipos"] = [{"nome": k, "qtde": len(dias), "datas": sorted(d for d in dias if d)}
+                          for k, dias in sorted(p["tipos"].items(), key=lambda x: -len(x[1]))]
             p["convenios"] = [k for k, _ in sorted(p["convenios"].items(), key=lambda x: -x[1])]
 
         # CPF, data de nascimento, endereço e carteirinha vêm do iGut (nome idêntico); o cadastro
