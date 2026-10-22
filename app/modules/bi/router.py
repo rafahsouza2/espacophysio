@@ -6,8 +6,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from app.auth.dependencies import require_auth, check_module_access
-from app.modules.bi.parser import (parse_xls, save_parsed_result, merge_save_result,
-                                    rebuild_report_for_period, load_saved, clear_saved, list_reports)
+from app.modules.bi.parser import (parse_xls, compilar_upload, escopo_upload,
+                                    load_saved, clear_saved, list_reports)
 from app.modules.bi.config import get_bi_config, save_bi_config, recalculate_all_reports
 
 TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
@@ -773,26 +773,29 @@ async def bi_upload(
         return JSONResponse({"ok": False, "erro": "Arquivo muito grande (máx. 50 MB)."}, status_code=400)
 
     try:
-        # Parse + save em thread — não bloqueia o event loop; em serverless (Vercel) o
-        # BackgroundTask é morto junto com a função, então save=True garante o salvamento
-        # antes de retornar a resposta.
-        data = await asyncio.to_thread(parse_xls, content, True)
+        # Parse + compilação em thread — não bloqueia o event loop; em serverless (Vercel) o
+        # BackgroundTask é morto junto com a função, então salva antes de responder.
+        data = await asyncio.to_thread(parse_xls, content, False)
+        info = await asyncio.to_thread(compilar_upload, data)
     except ValueError as e:
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=422)
     except Exception as e:
         print("BI UPLOAD ERROR:", repr(e))
         return JSONResponse({"ok": False, "erro": "Erro ao processar o arquivo. Verifique se é o export correto."}, status_code=500)
 
-    k = data["kpis"]
-    return JSONResponse({
-        "ok":          True,
-        "period_key":  data["period_key"],
-        "periodo":     data["periodo"]["label"],
-        "linhas":      data["total_registros"],
-        "finalizados": k["total_atendimentos"],
-        "producao":    k["total_producao"],
-        "save_error":  None,
-    })
+    return JSONResponse(_resumo_compilacao(info))
+
+
+def _resumo_compilacao(info: dict) -> dict:
+    """Resposta de upload compilado: dias cobertos pelo arquivo e mês para abrir no painel."""
+    br = lambda iso: f"{iso[8:10]}/{iso[5:7]}/{iso[:4]}"
+    return {
+        "ok":         True,
+        "period_key": info["mes_principal"],
+        "periodo":    f"{br(info['inicio'])} a {br(info['fim'])}",
+        "meses":      info["meses"],
+        "linhas":     info["linhas"],
+    }
 
 
 _BUCKET = "bi-uploads"
@@ -878,68 +881,21 @@ async def bi_process_chunks(
         print("BI PROCESS ERROR:", repr(e))
         return JSONResponse({"ok": False, "erro": "Erro ao processar o arquivo. Verifique se é o export correto."}, status_code=500)
 
-    period_key     = data["period_key"]
-    detected_units = data.get("detected_units") or []
+    # Arquivo compila com o que já existe: substitui só os dias × unidades que ele cobre.
+    # Se esses dias já têm registros importados, pede confirmação antes de substituí-los.
+    try:
+        esc = await asyncio.to_thread(escopo_upload, data)
+    except ValueError as e:
+        return JSONResponse({"ok": False, "erro": str(e)}, status_code=422)
 
-    # Verifica se já existe dado para este período
-    existing = await asyncio.to_thread(
-        lambda: sb.table("bi_reports").select("period_key").eq("period_key", period_key).limit(1).execute().data
-    )
-
-    if not existing:
-        # Período novo — salva normalmente
+    if not esc["existentes"]:
         try:
-            await asyncio.to_thread(save_parsed_result, data)
+            info = await asyncio.to_thread(compilar_upload, data)
         except Exception as e:
+            print("BI COMPILAR ERROR:", repr(e))
             return JSONResponse({"ok": False, "erro": f"Erro ao salvar: {e}"}, status_code=500)
-        k = data["kpis"]
-        return JSONResponse({
-            "ok": True, "period_key": period_key,
-            "periodo": data["periodo"]["label"],
-            "linhas": data["total_registros"],
-            "finalizados": k["total_atendimentos"],
-            "producao": k["total_producao"],
-        })
+        return JSONResponse(_resumo_compilacao(info))
 
-    # Período existe — verifica unidades sobrepostas
-    overlapping: list[str] = []
-    existing_units: set[str] = set()
-
-    if detected_units:
-        db_rows: list[dict] = []
-        offset = 0
-        while True:
-            batch = (sb.table("bi_atendimentos")
-                     .select("unidade")
-                     .eq("period_key", period_key)
-                     .range(offset, offset + 999)
-                     .execute().data or [])
-            db_rows.extend(batch)
-            if len(batch) < 1000:
-                break
-            offset += 1000
-        existing_units = {r.get("unidade") for r in db_rows if r.get("unidade")}
-        overlapping = [u for u in detected_units if u in existing_units]
-
-        if not overlapping:
-            # Unidades diferentes e identificadas — mescla automática segura
-            try:
-                await asyncio.to_thread(merge_save_result, data)
-            except Exception as e:
-                return JSONResponse({"ok": False, "erro": f"Erro ao mesclar: {e}"}, status_code=500)
-            k = data["kpis"]
-            return JSONResponse({
-                "ok": True, "period_key": period_key,
-                "periodo": data["periodo"]["label"],
-                "linhas": data["total_registros"],
-                "finalizados": k["total_atendimentos"],
-                "producao": k["total_producao"],
-                "merged": True,
-            })
-
-    # Pede confirmação:
-    # - se há sobreposição de unidades, OU
-    # - se não foi possível identificar unidades no arquivo (detected_units vazio)
     import json as _json
     pending_id = str(_uuid.uuid4())
     pending_path = f"pending/{pending_id}.json"
@@ -949,18 +905,15 @@ async def bi_process_chunks(
     except Exception as e:
         return JSONResponse({"ok": False, "erro": f"Erro ao salvar dados temporários: {e}"}, status_code=500)
 
-    sem_unidades = not detected_units
-
+    br = lambda iso: f"{iso[8:10]}/{iso[5:7]}/{iso[:4]}"
     return JSONResponse({
-        "ok":              True,
-        "needs_confirm":   True,
-        "pending_id":      pending_id,
-        "period_key":      period_key,
-        "periodo":         data["periodo"]["label"],
-        "detected_units":  detected_units,
-        "overlapping_units": overlapping,
-        "existing_units":  sorted(existing_units),
-        "sem_unidades":    sem_unidades,
+        "ok":            True,
+        "needs_confirm": True,
+        "pending_id":    pending_id,
+        "periodo":       f"{br(esc['inicio'])} a {br(esc['fim'])}",
+        "unidades":      esc["unidades"],
+        "existentes":    esc["existentes"],
+        "linhas":        len(data.get("_pending_atend_rows") or []),
     })
 
 
@@ -968,16 +921,16 @@ async def bi_process_chunks(
 async def bi_complete_import(
     request:    Request,
     pending_id: str  = Form(...),
-    action:     str  = Form(...),   # "merge" | "replace"
+    action:     str  = Form(...),   # "compilar"
     user=Depends(require_auth),
 ):
-    """Finaliza importação pendente (sobreposição de unidades confirmada pelo usuário)."""
+    """Finaliza importação pendente (substituição dos dias já importados confirmada pelo usuário)."""
     if isinstance(user, RedirectResponse):
         return user
     role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
     if role not in ("admin", "coordenacao"):
         return JSONResponse({"ok": False, "erro": "Sem permissão."}, status_code=403)
-    if action not in ("merge", "replace"):
+    if action != "compilar":
         return JSONResponse({"ok": False, "erro": "Ação inválida."}, status_code=400)
 
     import json as _json
@@ -997,22 +950,12 @@ async def bi_complete_import(
             pass
 
     try:
-        if action == "merge":
-            await asyncio.to_thread(merge_save_result, data)
-        else:
-            await asyncio.to_thread(save_parsed_result, data)
+        info = await asyncio.to_thread(compilar_upload, data)
     except Exception as e:
+        print("BI COMPILAR ERROR:", repr(e))
         return JSONResponse({"ok": False, "erro": f"Erro ao salvar: {e}"}, status_code=500)
 
-    k = data["kpis"]
-    return JSONResponse({
-        "ok":        True,
-        "period_key": data["period_key"],
-        "periodo":   data["periodo"]["label"],
-        "linhas":    data["total_registros"],
-        "finalizados": k["total_atendimentos"],
-        "producao":  k["total_producao"],
-    })
+    return JSONResponse(_resumo_compilacao(info))
 
 
 @router.delete("/bi/reports/{period_key}")

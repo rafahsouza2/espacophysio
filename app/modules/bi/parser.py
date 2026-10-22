@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import time
 from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
@@ -79,16 +80,39 @@ META_DIARIA = META / 22
 DATA_PATH = Path(__file__).parent.parent.parent / "data" / "bi_data.json"
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
+_EXTRAS = ("status_atendimento", "status_agendamento", "agendador", "como_achou")
+_extras_cache: dict = {"ok": None, "ts": 0.0}
+
+
+def _extras_disponiveis() -> bool:
+    """True se bi_atendimentos já tem as colunas da migração bi_atendimentos_compilacao.sql
+    (texto original dos status, quem agendou e como nos achou). Sem elas, um mês compilado
+    de vários arquivos fica sem os indicadores de agendamento. Rechecado a cada 5 min."""
+    if _extras_cache["ok"] or time.time() - _extras_cache["ts"] < 300:
+        return bool(_extras_cache["ok"])
+    try:
+        from app.database import get_supabase_admin
+        get_supabase_admin().table("bi_atendimentos").select(",".join(_EXTRAS)).limit(1).execute()
+        ok = True
+    except Exception:
+        ok = False
+    _extras_cache.update(ok=ok, ts=time.time())
+    return ok
+
+
 def _build_atend_rows(df: pd.DataFrame, period_key: str,
                        col_paciente, col_convenio, col_unidade, col_protocolo,
-                       col_cod=None) -> list[dict]:
-    """Constrói lista de dicts para bi_atendimentos sem tocar no banco de dados."""
+                       col_cod=None, extras: dict | None = None) -> list[dict]:
+    """Constrói lista de dicts para bi_atendimentos sem tocar no banco de dados.
+    period_key de cada linha é o mês do próprio atendimento (um arquivo semanal pode
+    cruzar dois meses). extras = {coluna de bi_atendimentos: coluna do arquivo}."""
+    extras = {k: v for k, v in (extras or {}).items() if v} if _extras_disponiveis() else {}
     rows = []
     for _, r in df.iterrows():
         dt   = r["_dt"]
         nasc = r.get("_nasc") if "_nasc" in df.columns else None
-        rows.append({
-            "period_key":     period_key,
+        row = {
+            "period_key":     dt.strftime("%Y-%m") if pd.notna(dt) else period_key,
             "data_atend":     dt.strftime("%Y-%m-%d") if pd.notna(dt) else None,
             "paciente":       str(r[col_paciente]).strip() if col_paciente and pd.notna(r.get(col_paciente)) else None,
             "profissional":   str(r["_prof"]) if "_prof" in r else None,
@@ -104,15 +128,20 @@ def _build_atend_rows(df: pd.DataFrame, period_key: str,
             "sexo":           str(r.get("_sexo", "")).strip() or None,
             "bairro":         str(r.get("_bairro", "")).strip() or None,
             "cidade":         str(r.get("_cidade", "")).strip() or None,
-        })
+        }
+        for campo, col in extras.items():
+            v = r.get(col)
+            row[campo] = (str(v).strip() or None) if pd.notna(v) else None
+        rows.append(row)
     return rows
 
 
 def _save_atendimentos(df: pd.DataFrame, period_key: str,
                         col_paciente, col_convenio, col_unidade, col_protocolo,
-                        col_cod=None) -> str | None:
+                        col_cod=None, extras: dict | None = None) -> str | None:
     """Salva linhas individuais na tabela bi_atendimentos (delete+insert por período)."""
-    rows = _build_atend_rows(df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod)
+    rows = _build_atend_rows(df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo,
+                             col_cod, extras)
     _insert_atend_rows(rows, period_key)
 
 
@@ -334,10 +363,17 @@ def _report_from_df(df: pd.DataFrame, save: bool = True, build_rows: bool = True
         df["_prof"] = "Desconhecido"
 
     if col_valor:
-        # Converte formato brasileiro "1.234,56" → 1234.56
-        _vs = df[col_valor].astype(str).str.strip().str.replace(r"\s", "", regex=True)
-        _vs = _vs.str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
-        df["_val"] = pd.to_numeric(_vs, errors="coerce").fillna(0.0)
+        # Texto no formato brasileiro "1.234,56" → 1234.56. Células já numéricas (xlsx salvo
+        # pelo Excel) ficam como estão — tirar o "." de 52.38 viraria 5238.
+        def _valor(v) -> float:
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                return float(v) if pd.notna(v) else 0.0
+            s = re.sub(r"\s", "", str(v)).replace(".", "").replace(",", ".")
+            try:
+                return float(s)
+            except ValueError:
+                return 0.0
+        df["_val"] = df[col_valor].map(_valor).fillna(0.0)
     else:
         df["_val"] = 0.0
 
@@ -755,10 +791,16 @@ def _report_from_df(df: pd.DataFrame, save: bool = True, build_rows: bool = True
         **global_data,
     }
 
+    # Colunas gravadas em bi_atendimentos para que um mês compilado de vários arquivos
+    # tenha os mesmos indicadores do arquivo do mês inteiro
+    extras_cols = {"status_atendimento": col_status, "status_agendamento": col_status_ag,
+                   "agendador": col_agendador, "como_achou": col_como}
+
     # 9. Persistir
     if save:
         save_error = _save_supabase(result)
-        _save_atendimentos(df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod)
+        _save_atendimentos(df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod,
+                           extras_cols)
         result["_save_error"] = save_error
         try:
             DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -769,7 +811,7 @@ def _report_from_df(df: pd.DataFrame, save: bool = True, build_rows: bool = True
         # Guarda linhas pré-computadas para salvar em background (sem chamar o banco agora)
         if build_rows:
             result["_pending_atend_rows"] = _build_atend_rows(
-                df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod
+                df, period_key, col_paciente, col_convenio, col_unidade, col_protocolo, col_cod, extras_cols
             )
             result["_pending_period_key"] = period_key
         result["_save_error"] = None
@@ -777,27 +819,14 @@ def _report_from_df(df: pd.DataFrame, save: bool = True, build_rows: bool = True
     return result
 
 
-def save_parsed_result(result: dict) -> None:
-    """Persiste no Supabase o resultado de parse_xls(save=False). Chamado em background."""
-    rows       = result.pop("_pending_atend_rows", [])
-    period_key = result.pop("_pending_period_key", None)
-
-    save_error = _save_supabase(result)
-    result["_save_error"] = save_error
-
-    if period_key and rows:
-        _insert_atend_rows(rows, period_key)
-
-    try:
-        DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-        DATA_PATH.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception as e:
-        print("BI DISK SAVE ERROR:", repr(e))
-
-
 _ATEND_COLS = ("data_atend,paciente,status,profissional,especialidade,"
                "convenio,unidade,valor,protocolo_lote,"
                "tipo_atendimento,data_nascimento,sexo,bairro,cidade")
+
+
+def _atend_cols() -> str:
+    """Colunas de bi_atendimentos usadas para recalcular relatórios (com as extras, se existirem)."""
+    return _ATEND_COLS + ("," + ",".join(_EXTRAS) if _extras_disponiveis() else "")
 
 
 def _fetch_atendimentos(cols: str, *, date_from: str | None = None, date_to: str | None = None,
@@ -834,12 +863,19 @@ def _fetch_atendimentos(cols: str, *, date_from: str | None = None, date_to: str
 
 def _report_from_rows(rows: list[dict]) -> dict | None:
     """Monta o relatório a partir de linhas de bi_atendimentos (mesmo cálculo do upload).
-    Status do agendamento e agendador não são gravados em bi_atendimentos, então os
-    indicadores que dependem deles ficam zerados."""
+    Linhas gravadas antes da migração bi_atendimentos_compilacao.sql não têm status do
+    agendamento nem quem agendou: os indicadores que dependem deles ficam zerados."""
     if not rows:
         return None
 
     df = pd.DataFrame(rows)
+
+    # Colunas extras totalmente vazias (linhas antigas) seriam contadas como "Sem Resposta"
+    df = df.drop(columns=[c for c in _EXTRAS if c in df.columns and df[c].isna().all()])
+    # Status original do iGut (FINALIZADA, CONSULTA MARCADA...) quando gravado; senão o classificado
+    tem_status_original = "status_atendimento" in df.columns
+    if tem_status_original:
+        df["status"] = df["status_atendimento"].fillna(df["status"])
 
     # 1. Datas vêm em ISO (AAAA-MM-DD): converte aqui, pois o parser lê com dayfirst=True
     #    e inverteria dia/mês (ou descartaria a data) de strings ISO
@@ -872,6 +908,9 @@ def _report_from_rows(rows: list[dict]) -> dict | None:
         "sexo":             "Sexo",
         "bairro":           "Bairro",
         "cidade":           "Cidade",
+        "status_agendamento": "Status do Agendamento",
+        "agendador":        "Usuário que Agendou",
+        "como_achou":       "Como nos achou",
     }
     available = {k: v for k, v in rename.items() if k in df.columns}
     df_out = df.rename(columns=available)[[v for v in available.values()]]
@@ -880,47 +919,103 @@ def _report_from_rows(rows: list[dict]) -> dict | None:
     rep = _report_from_df(df_out, save=False, build_rows=False)
 
     # Sem os status originais do iGut, o cruzamento agendamento × atendimento não se aplica
-    for agg in (rep, *rep.get("por_unidade", {}).values()):
-        agg["status_atendimento"] = {}
-        agg["cross_data"] = {"labels_ag": [], "labels_at": [], "matrix": [], "totals_ag": [], "totals_at": []}
+    if not tem_status_original:
+        for agg in (rep, *rep.get("por_unidade", {}).values()):
+            agg["status_atendimento"] = {}
+            agg["cross_data"] = {"labels_ag": [], "labels_at": [], "matrix": [], "totals_ag": [], "totals_at": []}
     return rep
 
 
 def rebuild_report_for_period(period_key: str) -> None:
     """Reconstrói bi_reports para um período lendo todos os bi_atendimentos do banco.
-    Usado após mesclagem de arquivos para que o relatório reflita todos os dados combinados.
+    Usado na compilação de arquivos para que o relatório reflita todos os dados combinados.
     """
-    data = _report_from_rows(_fetch_atendimentos(_ATEND_COLS, period_from=period_key,
+    data = _report_from_rows(_fetch_atendimentos(_atend_cols(), period_from=period_key,
                                                  period_to=period_key))
     if not data:
+        from app.database import get_supabase_admin
+        get_supabase_admin().table("bi_reports").delete().eq("period_key", period_key).execute()
         return
 
     # Salva apenas bi_reports (bi_atendimentos já está correto no banco)
     _save_supabase(data)
 
 
-def merge_save_result(result: dict) -> None:
-    """Mescla resultado no banco: deleta apenas as unidades do arquivo, insere novas linhas
-    e reconstrói bi_reports a partir de TODOS os atendimentos do período."""
+def _escopo_upload(result: dict) -> dict:
+    """Dias e unidades que um arquivo importado cobre — é exatamente o que ele substitui no banco."""
+    rows = result.get("_pending_atend_rows") or []
+    dias = sorted({r["data_atend"] for r in rows if r.get("data_atend")})
+    if not dias:
+        raise ValueError("O arquivo não tem datas de atendimento válidas.")
+    return {"inicio": dias[0], "fim": dias[-1],
+            "unidades": list(result.get("detected_units") or []),
+            "sem_unidade": any(not r.get("unidade") for r in rows)}
+
+
+def _consultas_escopo(sb, esc: dict, acao) -> list:
+    """Consultas sobre bi_atendimentos restritas ao escopo do arquivo; acao(tabela) dá a base
+    (delete ou contagem). Arquivo sem coluna de unidade cobre todas as unidades nos seus dias."""
+    def base():
+        return acao(sb.table("bi_atendimentos")).gte("data_atend", esc["inicio"]).lte("data_atend", esc["fim"])
+    if not esc["unidades"]:
+        return [base()]
+    qs = [base().in_("unidade", esc["unidades"])]
+    if esc["sem_unidade"]:
+        qs.append(base().is_("unidade", "null"))
+    return qs
+
+
+def escopo_upload(result: dict) -> dict:
+    """Escopo do arquivo (inicio, fim, unidades) e quantos registros já importados ele vai
+    substituir em "existentes" — base da confirmação antes de compilar."""
     from app.database import get_supabase_admin
-    sb = get_supabase_admin()
+    esc = _escopo_upload(result)
+    esc["existentes"] = sum(q.limit(1).execute().count or 0
+                            for q in _consultas_escopo(get_supabase_admin(), esc,
+                                                       lambda t: t.select("id", count="exact")))
+    return esc
 
-    rows          = result.pop("_pending_atend_rows", [])
-    period_key    = result.pop("_pending_period_key", result.get("period_key"))
-    detected_units = result.get("detected_units", [])
 
-    if not detected_units:
-        raise ValueError("merge_save_result: detected_units vazio — use save_parsed_result para substituir o período completo.")
+def _meses_entre(ini: str, fim: str) -> list[str]:
+    """["AAAA-MM", ...] de ini a fim (datas AAAA-MM-DD)."""
+    y, m = int(ini[:4]), int(ini[5:7])
+    meses = []
+    while f"{y:04d}-{m:02d}" <= fim[:7]:
+        meses.append(f"{y:04d}-{m:02d}")
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return meses
 
-    # 1. Deleta apenas as unidades presentes no arquivo
-    sb.table("bi_atendimentos").delete().eq("period_key", period_key).in_("unidade", detected_units).execute()
 
-    # 2. Insere novas linhas
+def compilar_upload(result: dict) -> dict:
+    """Grava um arquivo importado compilando com o que já existe: em bi_atendimentos substitui
+    só os dias × unidades que o arquivo cobre, mantém o resto e recalcula o relatório de cada
+    mês afetado. Assim o mês pode chegar em arquivos semanais, inteiro de uma vez, ou num
+    reenvio que corrige uma semana."""
+    from collections import Counter
+    from app.database import get_supabase_admin
+    sb   = get_supabase_admin()
+    esc  = _escopo_upload(result)
+    rows = result.pop("_pending_atend_rows", [])
+    result.pop("_pending_period_key", None)
+
+    # 1. Remove o que o arquivo substitui e grava as linhas novas
+    for q in _consultas_escopo(sb, esc, lambda t: t.delete()):
+        q.execute()
     for i in range(0, len(rows), 500):
         sb.table("bi_atendimentos").insert(rows[i:i + 500]).execute()
 
-    # 3. Reconstrói bi_reports a partir de todos os dados combinados
-    rebuild_report_for_period(period_key)
+    # 2. Relatório de cada mês afetado
+    por_mes = Counter(r["period_key"] for r in rows)
+    for mes in _meses_entre(esc["inicio"], esc["fim"]):
+        no_banco = (sb.table("bi_atendimentos").select("id", count="exact")
+                      .eq("period_key", mes).limit(1).execute().count or 0)
+        if len(por_mes) == 1 and no_banco == por_mes[mes]:
+            _save_supabase(result)          # o mês no banco é só este arquivo: usa o relatório dele
+        else:
+            rebuild_report_for_period(mes)  # mês compilado de vários arquivos: recalcula das linhas
+
+    return {**esc, "meses": sorted(por_mes), "mes_principal": por_mes.most_common(1)[0][0],
+            "linhas": len(rows)}
 
 
 # ── Carregar / limpar ─────────────────────────────────────────────────────────
@@ -1254,7 +1349,7 @@ def load_report_for_dates(date_from: str, date_to: str) -> dict | None:
         pk, ini, fim, full = seg
         if full:
             return saved.get(pk)
-        return _report_from_rows(_fetch_atendimentos(_ATEND_COLS, date_from=ini.isoformat(),
+        return _report_from_rows(_fetch_atendimentos(_atend_cols(), date_from=ini.isoformat(),
                                                      date_to=fim.isoformat()))
 
     from concurrent.futures import ThreadPoolExecutor
@@ -1275,6 +1370,9 @@ def clear_saved(period_key: str | None = None) -> None:
         q  = sb.table("bi_reports").delete()
         q  = q.eq("period_key", period_key) if period_key else q.neq("period_key", "")
         q.execute()
+        if period_key:
+            # Sem isso, o próximo arquivo compilado no mês ressuscitaria os dados excluídos
+            sb.table("bi_atendimentos").delete().eq("period_key", period_key).execute()
     except Exception as e:
         print("BI SUPABASE CLEAR ERROR:", repr(e))
     try:

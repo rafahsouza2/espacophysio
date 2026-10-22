@@ -75,7 +75,8 @@
     </select>
     {% endif %}
     {% if user.role in ['admin', 'coordenacao'] %}
-    <label class="btn-sm-outline" for="upload-input">↑ Importar</label>
+    <label class="btn-sm-outline" for="upload-input"
+           title="Envie o mês inteiro ou um arquivo por semana: cada arquivo substitui só os seus dias e o mês é compilado.">↑ Importar</label>
     {% endif %}
   </div>
 </header>
@@ -765,6 +766,7 @@ const PERIODO   = BI.periodo?.label || '';
         <div class="report-icon">📊</div>
         <div class="report-info">
           <strong>{{ r.periodo_label }}</strong>
+          {% if r.periodo_inicio and r.periodo_fim %}<span>Dados de {{ r.periodo_inicio }} a {{ r.periodo_fim }}</span>{% endif %}
           <span>{{ "{:,}".format(r.total_registros).replace(",",".") }} atend. · {{ "{:,}".format(r.total_atendimentos).replace(",",".") }} finalizados · R$ {{ "{:,.2f}".format(r.total_producao or 0).replace(",","X").replace(".",",").replace("X",".") }}</span>
           <div class="pbar-wrap" style="margin-top:6px">
             <div class="pbar-fill {% if alcance >= 100 %}pbar-green{% elif alcance >= 80 %}pbar-amber{% else %}pbar-red{% endif %}"
@@ -2868,51 +2870,48 @@ async function doUpload(file) {
       return;
     }
 
-    if (prog) { prog.className = 'upload-progress upload-toast ok'; prog.textContent = '✅ ' + data.periodo + ' importado' + (data.merged ? ' (mesclado)' : '') + ' — ' + data.linhas + ' registros'; }
-    setTimeout(() => { location.href = '/bi?period=' + data.period_key; }, 1200);
+    _importOk(data);
 
   } catch(e) {
     _err('Erro de conexão: ' + e.message);
   }
 }
 
+function _fmtInt(n) { return Number(n || 0).toLocaleString('pt-BR'); }
+
+function _importOk(d) {
+  const prog = document.getElementById('upload-progress');
+  if (prog) {
+    prog.style.display = 'block';
+    prog.className = 'upload-progress upload-toast ok';
+    prog.textContent = `✅ ${d.periodo} compilado — ${_fmtInt(d.linhas)} registros`;
+  }
+  setTimeout(() => { location.href = '/bi?period=' + d.period_key; }, 1500);
+}
+
 function _showImportModal(data) {
   const existing = document.getElementById('import-confirm-modal');
   if (existing) existing.remove();
 
-  let titulo, descricao, hint, botaoMesclar;
-
-  if (data.sem_unidades) {
-    // Arquivo sem coluna de unidade — não é possível mesclar com segurança
-    titulo = 'Período já importado';
-    descricao = `O período <strong>${data.periodo}</strong> já possui dados no sistema, mas o arquivo não contém identificação de unidade — não é possível mesclar automaticamente.`;
-    hint = '<em>Substituir tudo</em> apaga todos os dados do período e importa apenas este arquivo. Cancele se quiser manter os dados atuais.';
-    botaoMesclar = '';
-  } else {
-    const ol = data.overlapping_units.map(u => `<li>${u}</li>`).join('');
-    const olExist = (data.existing_units || []).filter(u => !data.overlapping_units.includes(u)).map(u => `<li>${u}</li>`).join('');
-    titulo = 'Unidades duplicadas detectadas';
-    descricao = `O arquivo de <strong>${data.periodo}</strong> contém unidades que já existem no banco:
-      <ul class="import-modal-units">${ol}</ul>
-      ${olExist ? `<p style="margin:8px 0 0">Unidades que serão mantidas: <ul class="import-modal-units">${olExist}</ul></p>` : ''}`;
-    hint = '<em>Mesclar</em> mantém as demais unidades e substitui apenas as listadas acima. <em>Substituir tudo</em> apaga todos os dados do período e importa somente este arquivo.';
-    botaoMesclar = `<button class="btn-primary" onclick="_completeImport('${data.pending_id}','${data.period_key}','merge')">Mesclar unidades</button>`;
-  }
+  const unidades = (data.unidades || []).length
+    ? `<ul class="import-modal-units">${data.unidades.map(u => `<li>${u}</li>`).join('')}</ul>`
+    : '<p style="margin:6px 0 0"><strong>todas as unidades</strong> (o arquivo não identifica a unidade)</p>';
 
   const modal = document.createElement('div');
   modal.id = 'import-confirm-modal';
   modal.innerHTML = `
     <div class="import-modal-backdrop"></div>
     <div class="import-modal-box glass">
-      <h3>${titulo}</h3>
-      <p>${descricao}</p>
-      <p>Como deseja prosseguir?</p>
+      <h3>Dias já importados</h3>
+      <p>O arquivo cobre <strong>${data.periodo}</strong> (${_fmtInt(data.linhas)} registros) e já existem
+         <strong>${_fmtInt(data.existentes)} registros</strong> importados nesses dias para:</p>
+      ${unidades}
+      <p>Eles serão substituídos pelos dados do arquivo. Os demais dias e unidades continuam como estão.</p>
       <div class="import-modal-actions">
         <button class="btn-secondary" onclick="_cancelImport()">Cancelar</button>
-        <button class="btn-warning"   onclick="_completeImport('${data.pending_id}','${data.period_key}','replace')">Substituir tudo</button>
-        ${botaoMesclar}
+        <button class="btn-primary"   onclick="_completeImport('${data.pending_id}')">Substituir esses dias</button>
       </div>
-      <p class="import-modal-hint">${hint}</p>
+      <p class="import-modal-hint">Você pode enviar o mês inteiro ou um arquivo por semana: o sistema compila os dias no mês.</p>
     </div>`;
   document.body.appendChild(modal);
 }
@@ -2922,22 +2921,21 @@ function _cancelImport() {
   if (m) m.remove();
 }
 
-async function _completeImport(pendingId, periodKey, action) {
+async function _completeImport(pendingId) {
   _cancelImport();
   const prog = document.getElementById('upload-progress');
   if (prog) { prog.style.display = 'block'; prog.className = 'upload-progress upload-toast'; prog.textContent = '⏳ Salvando...'; }
   try {
     const fd = new FormData();
     fd.append('pending_id', pendingId);
-    fd.append('action', action);
+    fd.append('action', 'compilar');
     const r = await fetch('/bi/complete-import', { method: 'POST', body: fd });
     const d = await r.json();
     if (!d.ok) {
       if (prog) { prog.className = 'upload-progress upload-toast err'; prog.textContent = '❌ ' + (d.erro || 'Erro ao salvar.'); }
       return;
     }
-    if (prog) { prog.className = 'upload-progress upload-toast ok'; prog.textContent = '✅ ' + d.periodo + ' importado — ' + d.linhas + ' registros'; }
-    setTimeout(() => { location.href = '/bi?period=' + d.period_key; }, 1200);
+    _importOk(d);
   } catch(e) {
     if (prog) { prog.className = 'upload-progress upload-toast err'; prog.textContent = '❌ Erro de conexão: ' + e.message; }
   }
